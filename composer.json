@@ -1,0 +1,47 @@
+{
+    "name": "phpinnacle/minos",
+    "description": "A plugin for Laravel Filament that adds minos to your application.",
+    "keywords": [
+        "phpinnacle",
+        "laravel",
+        "filament"
+    ],
+    "homepage": "https://github.com/phpinnacle/minos",
+    "support": {
+        "issues": "https://github.com/phpinnacle/minos/issues",
+        "source": "https://github.com/phpinnacle/minos"
+    },
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "PHPinnacle Devs",
+            "email": "dev@phpinnacle.edu.pl",
+            "role": "Developer"
+        }
+    ],
+    "require": {
+        "php": "^8.4",
+        "laravel/cashier": "^16.5",
+        "phpinnacle/common": "^1.0",
+        "phpinnacle/money": "^1.0",
+        "phpinnacle/palette": "^1.0",
+        "phpinnacle/tempo": "^1.0",
+        "spatie/laravel-package-tools": "^1.92"
+    },
+    "autoload": {
+        "psr-4": {
+            "PHPinnacle\\Minos\\": "src/"
+        }
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "PHPinnacle\\Minos\\MinosServiceProvider"
+            ]
+        }
+    },
+    "prefer-stable": true
+}
