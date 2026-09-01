@@ -1,6 +1,6 @@
 {
     "name": "phpinnacle/minos",
-    "description": "A plugin for Laravel Filament that adds minos to your application.",
+    "description": "Payment orchestration and operational configuration for Laravel Filament applications.",
     "keywords": [
         "phpinnacle",
         "laravel",
