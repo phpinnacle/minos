@@ -65,6 +65,7 @@ readonly class EripClient
     }
 
     /**
+     * @param non-empty-string $delimiter
      * @return list<string>
      */
     private static function explode(string $value, string $delimiter = \PHP_EOL): array

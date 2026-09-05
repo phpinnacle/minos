@@ -11,7 +11,7 @@ use PHPinnacle\Minos\Contracts\PaymentProvider;
 class ProviderRegistry implements Countable
 {
     /**
-     * @var array<class-string<PaymentProvider>, PaymentProvider>
+     * @var array<string, PaymentProvider>
      */
     private array $items = [];
 
@@ -28,7 +28,7 @@ class ProviderRegistry implements Countable
     }
 
     /**
-     * @return Collection<class-string<PaymentProvider>, PaymentProvider>
+     * @return Collection<string, PaymentProvider>
      */
     public function all(): Collection
     {

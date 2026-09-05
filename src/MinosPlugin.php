@@ -15,7 +15,7 @@ class MinosPlugin implements Plugin
     use EvaluatesClosures;
 
     /**
-     * @var list<Closure|PaymentProvider>
+     * @var array<array-key, Closure|PaymentProvider>
      */
     private array $providers = [];
 
