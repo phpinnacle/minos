@@ -34,7 +34,7 @@ readonly class EripClient
     {
         return array_values(array_filter(
             array_map(fn (string $v) => trim($v), explode($delimiter, $value)),
-            fn (string $v) => !empty($v),
+            fn (string $v) => $v !== '',
         ));
     }
 

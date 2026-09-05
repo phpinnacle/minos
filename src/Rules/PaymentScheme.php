@@ -26,7 +26,7 @@ readonly class PaymentScheme implements ValidationRule
             return;
         }
 
-        if (empty($value)) {
+        if ($value === []) {
             $fail('phpinnacle-minos::validation.payment_scheme.empty')->translate();
 
             return;

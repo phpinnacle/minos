@@ -15,7 +15,7 @@ readonly class PaymentParts implements ValidationRule
             return;
         }
 
-        if (empty($value)) {
+        if ($value === []) {
             $fail('phpinnacle-minos::validation.payment_parts.empty')->translate();
 
             return;

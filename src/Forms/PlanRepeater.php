@@ -72,7 +72,7 @@ class PlanRepeater extends Repeater
         $dates = array_filter(array_column($this->getState(), 'sale_at'));
         $dates = array_map(fn ($date) => CarbonImmutable::parse($date)->endOfDay(), $dates);
 
-        return !empty($dates) ? max($dates)->addDays(1) : CarbonImmutable::now()->endOfDay()->addDay();
+        return $dates !== [] ? max($dates)->addDays(1) : CarbonImmutable::now()->endOfDay()->addDay();
     }
 
     private function leftAmount(): ?Money
@@ -80,6 +80,6 @@ class PlanRepeater extends Repeater
         $expected = $this->evaluate($this->expectedAmount);
         $amounts = array_filter(array_column($this->getState(), 'amount'));
 
-        return !empty($amounts) ? $expected?->sub(Money::sum(...$amounts)) : $expected;
+        return $amounts !== [] ? $expected?->sub(Money::sum(...$amounts)) : $expected;
     }
 }

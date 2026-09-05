@@ -48,7 +48,7 @@ class Stripe extends Base
                 ]),
             KeyValue::make('info')
                 ->label(__('phpinnacle-minos::providers.stripe.fields.info'))
-                ->visible(fn (?array $state) => !empty($state))
+                ->visible(fn (?array $state) => $state !== null && $state !== [])
                 ->disabled(),
         ];
     }
@@ -97,7 +97,7 @@ class Stripe extends Base
     private function test(string $key): array
     {
         try {
-            if (empty($key)) {
+            if ($key === '') {
                 return [];
             }
 

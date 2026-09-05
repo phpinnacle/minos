@@ -41,7 +41,7 @@ class MethodForm
                         ->heading(__('phpinnacle-minos::resources.payment_method.sections.options'))
                         ->statePath('settings')
                         ->schema($schema)
-                        ->visible(!empty($schema)),
+                        ->visible($schema !== []),
                 ];
             });
     }

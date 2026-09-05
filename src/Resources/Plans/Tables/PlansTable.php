@@ -67,7 +67,7 @@ class PlansTable
 
     private static function formatParts(PaymentPlan $plan): ?string
     {
-        if (empty($plan->parts)) {
+        if ($plan->parts === []) {
             return null;
         }
 
