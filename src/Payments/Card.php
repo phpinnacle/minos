@@ -7,11 +7,9 @@ use PHPinnacle\Minos\Enums\Ability;
 
 class Card extends Base
 {
-    public function abilities(): array
+    public function key(): string
     {
-        return [
-            Ability::Offline,
-        ];
+        return 'card';
     }
 
     public function getColor(): array
@@ -19,14 +17,14 @@ class Card extends Base
         return Color::Yellow;
     }
 
-    public function getDescription(): string
-    {
-        return __('phpinnacle-minos::providers.card.description');
-    }
-
     public function getIcon(): string
     {
         return 'phosphor-credit-card';
+    }
+
+    public function getDescription(): string
+    {
+        return __('phpinnacle-minos::providers.card.description');
     }
 
     public function getLabel(): string
@@ -34,8 +32,10 @@ class Card extends Base
         return __('phpinnacle-minos::providers.card.label');
     }
 
-    public function key(): string
+    public function abilities(): array
     {
-        return 'card';
+        return [
+            Ability::Offline,
+        ];
     }
 }

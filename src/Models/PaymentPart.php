@@ -22,14 +22,14 @@ readonly class PaymentPart implements Arrayable, Wireable
             : throw new InvalidArgumentException('Invalid data provided for payment part.');
     }
 
-    public static function fromLivewire($value): ?self
-    {
-        return $value !== null ? self::create($value) : null;
-    }
-
     public static function resolve(array|self $data): self
     {
         return is_array($data) ? self::create($data) : $data;
+    }
+
+    public static function fromLivewire($value): ?self
+    {
+        return $value !== null ? self::create($value) : null;
     }
 
     public function add(Money $amount): self

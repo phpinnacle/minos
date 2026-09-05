@@ -17,12 +17,34 @@ use Stripe\Exception\AuthenticationException;
 
 class Stripe extends Base
 {
-    public function abilities(): array
+    public function key(): string
     {
-        return [
-            Ability::Online,
-            Ability::Recurring,
-        ];
+        return 'stripe';
+    }
+
+    public function getColor(): array
+    {
+        return Color::Indigo;
+    }
+
+    public function getIcon(): string
+    {
+        return 'phosphor-stripe-logo';
+    }
+
+    public function getDescription(): string
+    {
+        return __('phpinnacle-minos::providers.stripe.description');
+    }
+
+    public function getLabel(): string
+    {
+        return __('phpinnacle-minos::providers.stripe.label');
+    }
+
+    public function validate(array $settings): bool
+    {
+        return ($settings['api_key'] ?? null) !== null && ($settings['public_key'] ?? null) !== null;
     }
 
     public function form(): array
@@ -53,29 +75,12 @@ class Stripe extends Base
         ];
     }
 
-    public function getColor(): array
+    public function abilities(): array
     {
-        return Color::Indigo;
-    }
-
-    public function getDescription(): string
-    {
-        return __('phpinnacle-minos::providers.stripe.description');
-    }
-
-    public function getIcon(): string
-    {
-        return 'phosphor-stripe-logo';
-    }
-
-    public function getLabel(): string
-    {
-        return __('phpinnacle-minos::providers.stripe.label');
-    }
-
-    public function handle(Notification $notification): Continuation
-    {
-        return Continuation::success();
+        return [
+            Ability::Online,
+            Ability::Recurring,
+        ];
     }
 
     public function intent(Intent $intent): Continuation
@@ -83,14 +88,9 @@ class Stripe extends Base
         return Continuation::pending();
     }
 
-    public function key(): string
+    public function handle(Notification $notification): Continuation
     {
-        return 'stripe';
-    }
-
-    public function validate(array $settings): bool
-    {
-        return ($settings['api_key'] ?? null) !== null && ($settings['public_key'] ?? null) !== null;
+        return Continuation::success();
     }
 
     /** @return array<string, mixed> */

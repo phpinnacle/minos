@@ -69,25 +69,6 @@ class CreditCard extends Model
         return self::query()->where('is_active', true)->orderBy('sort');
     }
 
-    public static function booted(): void
-    {
-        self::creating(function (self $record) {
-            reset_sort($record, [
-                'customer_type' => $record->customer_type,
-                'customer_id' => $record->customer_id,
-            ]);
-
-            if ($record->sort === 1) {
-                $record->is_default = true;
-            }
-        });
-    }
-
-    public static function find(string $id): ?self
-    {
-        return self::query()->find($id);
-    }
-
     /** @return Collection<int, self> */
     public static function list(string $method, Payer $payer): Collection
     {
@@ -100,6 +81,11 @@ class CreditCard extends Model
             ->get();
     }
 
+    public static function find(string $id): ?self
+    {
+        return self::query()->find($id);
+    }
+
     public function isUsableFor(Payer $payer): bool
     {
         return (
@@ -108,6 +94,20 @@ class CreditCard extends Model
             && $this->customer_id === $payer->id
             && !$this->expires_at->isPast()
         );
+    }
+
+    public static function booted(): void
+    {
+        self::creating(function (self $record) {
+            reset_sort($record, [
+                'customer_type' => $record->customer_type,
+                'customer_id' => $record->customer_id,
+            ]);
+
+            if ($record->sort === 1) {
+                $record->is_default = true;
+            }
+        });
     }
 
     /** @return BelongsTo<PaymentMethod, $this> */

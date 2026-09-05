@@ -23,12 +23,39 @@ use PHPinnacle\Minos\Services\BePaid\CardClient;
 
 class BePaid extends Base
 {
-    public function abilities(): array
+    public function key(): string
     {
-        return [
-            Ability::Online,
-            Ability::Recurring,
-        ];
+        return 'bepaid';
+    }
+
+    public function getColor(): array
+    {
+        return Color::Orange;
+    }
+
+    public function getIcon(): string
+    {
+        return 'phosphor-credit-card';
+    }
+
+    public function getDescription(): string
+    {
+        return __('phpinnacle-minos::providers.bepaid.description');
+    }
+
+    public function getLabel(): string
+    {
+        return __('phpinnacle-minos::providers.bepaid.label');
+    }
+
+    /** @param array<string, mixed> $settings */
+    public function validate(array $settings): bool
+    {
+        return (
+            ($settings['shop_id'] ?? null) !== null
+            && ($settings['public_key'] ?? null) !== null
+            && ($settings['secret_key'] ?? null) !== null
+        );
     }
 
     /** @return array<Component> */
@@ -82,84 +109,12 @@ class BePaid extends Base
         ];
     }
 
-    public function getColor(): array
+    public function abilities(): array
     {
-        return Color::Orange;
-    }
-
-    public function getDescription(): string
-    {
-        return __('phpinnacle-minos::providers.bepaid.description');
-    }
-
-    public function getIcon(): string
-    {
-        return 'phosphor-credit-card';
-    }
-
-    public function getLabel(): string
-    {
-        return __('phpinnacle-minos::providers.bepaid.label');
-    }
-
-    public function handle(Notification $notification): Continuation
-    {
-        $transaction = $notification->payload['transaction'] ?? [];
-        $creditCard = null;
-        $decision = match ($transaction['status'] ?? null) {
-            'successful' => Decision::Success,
-            'failed' => Decision::Failure,
-            default => Decision::Pending,
-        };
-
-        if ($decision === Decision::Success) {
-            $persist = (bool) filter_var($notification->payload['persist'] ?? false, FILTER_VALIDATE_BOOLEAN);
-
-            if ($persist) {
-                $cardData = $transaction['credit_card'] ?? [];
-                $creditCard = $this->persistCard($notification->method, $notification->payer, $cardData);
-            }
-        }
-
-        return new Continuation(
-            decision: $decision,
-            externalId: $transaction['uid'] ?? null,
-            response: $notification->payload,
-            metadata: [
-                'redirect' => $transaction['redirect_url'] ?? null,
-                'receipt' => $transaction['receipt_url'] ?? null,
-                'message' => $transaction['message'] ?? null,
-                'payment_card_id' => $creditCard?->getKey() ?? null,
-            ],
-        );
-    }
-
-    public function intent(Intent $intent): Continuation
-    {
-        $client = CardClient::create($intent->method->settings);
-        $authorize = (bool) filter_var($intent->method->settings['authorize'] ?? false, FILTER_VALIDATE_BOOLEAN);
-        $continuation = $authorize ? $client->authorize($intent) : $client->payment($intent);
-
-        // No 3D Secure pass
-        if ($continuation->decision === Decision::Success) {
-            $persist = $intent->instrument instanceof EncryptedCard && $intent->instrument->persist;
-
-            if ($persist) {
-                $cardData = $continuation->response['transaction']['credit_card'] ?? [];
-                $creditCard = $this->persistCard($intent->method, $intent->payer, $cardData);
-
-                if ($creditCard !== null) {
-                    $continuation->metadata['payment_card_id'] = $creditCard->getKey();
-                }
-            }
-        }
-
-        return $continuation;
-    }
-
-    public function key(): string
-    {
-        return 'bepaid';
+        return [
+            Ability::Online,
+            Ability::Recurring,
+        ];
     }
 
     public function schema(PaymentMethod $method, Payer $payer): OA\Schema
@@ -240,13 +195,58 @@ class BePaid extends Base
         );
     }
 
-    /** @param array<string, mixed> $settings */
-    public function validate(array $settings): bool
+    public function intent(Intent $intent): Continuation
     {
-        return (
-            ($settings['shop_id'] ?? null) !== null
-            && ($settings['public_key'] ?? null) !== null
-            && ($settings['secret_key'] ?? null) !== null
+        $client = CardClient::create($intent->method->settings);
+        $authorize = (bool) filter_var($intent->method->settings['authorize'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        $continuation = $authorize ? $client->authorize($intent) : $client->payment($intent);
+
+        // No 3D Secure pass
+        if ($continuation->decision === Decision::Success) {
+            $persist = $intent->instrument instanceof EncryptedCard && $intent->instrument->persist;
+
+            if ($persist) {
+                $cardData = $continuation->response['transaction']['credit_card'] ?? [];
+                $creditCard = $this->persistCard($intent->method, $intent->payer, $cardData);
+
+                if ($creditCard !== null) {
+                    $continuation->metadata['payment_card_id'] = $creditCard->getKey();
+                }
+            }
+        }
+
+        return $continuation;
+    }
+
+    public function handle(Notification $notification): Continuation
+    {
+        $transaction = $notification->payload['transaction'] ?? [];
+        $creditCard = null;
+        $decision = match ($transaction['status'] ?? null) {
+            'successful' => Decision::Success,
+            'failed' => Decision::Failure,
+            default => Decision::Pending,
+        };
+
+        if ($decision === Decision::Success) {
+            $persist = (bool) filter_var($notification->payload['persist'] ?? false, FILTER_VALIDATE_BOOLEAN);
+
+            if ($persist) {
+                $cardData = $transaction['credit_card'] ?? [];
+                $creditCard = $this->persistCard($notification->method, $notification->payer, $cardData);
+            }
+        }
+
+        return new Continuation(
+            decision: $decision,
+            externalId: $transaction['uid'] ?? null,
+            response: $notification->payload,
+            metadata: [
+                'redirect' => $transaction['redirect_url'] ?? null,
+                'receipt' => $transaction['receipt_url'] ?? null,
+                'message' => $transaction['message'] ?? null,
+                'payment_card_id' => $creditCard?->getKey() ?? null,
+            ],
         );
     }
 

@@ -14,21 +14,6 @@ use PHPinnacle\Minos\Models\PaymentMethod;
 
 abstract class Base implements PaymentProvider
 {
-    public function abilities(): array
-    {
-        return [];
-    }
-
-    public function define(array $settings = []): PaymentMethod
-    {
-        return PaymentMethod::define($this, $settings);
-    }
-
-    public function form(): array
-    {
-        return [];
-    }
-
     public function getColor(): string|array|null
     {
         return 'primary';
@@ -49,14 +34,24 @@ abstract class Base implements PaymentProvider
         return null;
     }
 
-    public function handle(Notification $notification): Continuation
+    public function validate(array $settings): bool
     {
-        return Continuation::success();
+        return true;
     }
 
-    public function intent(Intent $intent): Continuation
+    public function define(array $settings = []): PaymentMethod
     {
-        return Continuation::pending();
+        return PaymentMethod::define($this, $settings);
+    }
+
+    public function form(): array
+    {
+        return [];
+    }
+
+    public function abilities(): array
+    {
+        return [];
     }
 
     public function schema(PaymentMethod $method, Payer $payer): ?OA\Schema
@@ -64,8 +59,13 @@ abstract class Base implements PaymentProvider
         return null;
     }
 
-    public function validate(array $settings): bool
+    public function intent(Intent $intent): Continuation
     {
-        return true;
+        return Continuation::pending();
+    }
+
+    public function handle(Notification $notification): Continuation
+    {
+        return Continuation::success();
     }
 }

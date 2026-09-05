@@ -17,11 +17,34 @@ use PHPinnacle\Minos\Services\BePaid\EripClient;
 
 class Erip extends Base
 {
-    public function abilities(): array
+    public function key(): string
     {
-        return [
-            Ability::Online,
-        ];
+        return 'erip';
+    }
+
+    public function getColor(): array
+    {
+        return Color::Orange;
+    }
+
+    public function getIcon(): string
+    {
+        return 'phosphor-cash-register';
+    }
+
+    public function getDescription(): string
+    {
+        return __('phpinnacle-minos::providers.erip.description');
+    }
+
+    public function getLabel(): string
+    {
+        return __('phpinnacle-minos::providers.erip.label');
+    }
+
+    public function validate(array $settings): bool
+    {
+        return ($settings['shop_id'] ?? null) !== null && ($settings['secret_key'] ?? null) !== null;
     }
 
     public function form(): array
@@ -60,24 +83,16 @@ class Erip extends Base
         ];
     }
 
-    public function getColor(): array
+    public function abilities(): array
     {
-        return Color::Orange;
+        return [
+            Ability::Online,
+        ];
     }
 
-    public function getDescription(): string
+    public function intent(Intent $intent): Continuation
     {
-        return __('phpinnacle-minos::providers.erip.description');
-    }
-
-    public function getIcon(): string
-    {
-        return 'phosphor-cash-register';
-    }
-
-    public function getLabel(): string
-    {
-        return __('phpinnacle-minos::providers.erip.label');
+        return EripClient::create($intent->method->settings)->payment($intent);
     }
 
     public function handle(Notification $notification): Continuation
@@ -94,20 +109,5 @@ class Erip extends Base
             externalId: $transaction['uid'] ?? null,
             response: $notification->payload,
         );
-    }
-
-    public function intent(Intent $intent): Continuation
-    {
-        return EripClient::create($intent->method->settings)->payment($intent);
-    }
-
-    public function key(): string
-    {
-        return 'erip';
-    }
-
-    public function validate(array $settings): bool
-    {
-        return ($settings['shop_id'] ?? null) !== null && ($settings['secret_key'] ?? null) !== null;
     }
 }

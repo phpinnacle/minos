@@ -12,14 +12,14 @@ use PHPinnacle\Minos\Models\PaymentMethod;
 
 interface PaymentGateway
 {
+    public function key(): string;
+
     /** @return list<Ability> */
     public function abilities(): array;
 
-    public function handle(Notification $notification): Continuation;
+    public function schema(PaymentMethod $method, Payer $payer): ?OA\Schema;
 
     public function intent(Intent $intent): Continuation;
 
-    public function key(): string;
-
-    public function schema(PaymentMethod $method, Payer $payer): ?OA\Schema;
+    public function handle(Notification $notification): Continuation;
 }

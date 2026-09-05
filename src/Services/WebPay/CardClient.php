@@ -27,16 +27,16 @@ readonly class CardClient
         private array $settings = [],
     ) {}
 
+    public static function make(string $shopId, string $secretKey, array $settings, bool $testMode = false): self
+    {
+        return new self($shopId, new RequestSigner($secretKey), $testMode, $settings);
+    }
+
     public static function create(array $settings): self
     {
         $testMode = (bool) ($settings['test_mode'] ?? false);
 
         return self::make($settings['shop_id'], $settings['secret_key'], $settings, $testMode);
-    }
-
-    public static function make(string $shopId, string $secretKey, array $settings, bool $testMode = false): self
-    {
-        return new self($shopId, new RequestSigner($secretKey), $testMode, $settings);
     }
 
     public function payment(Intent $intent): Continuation

@@ -11,12 +11,12 @@ use PHPinnacle\Minos\Models\PaymentMethod;
 
 interface PaymentProvider extends HasColor, HasDescription, HasIcon, HasLabel, PaymentGateway
 {
-    /** @param array<string, mixed> $settings */
-    public function define(array $settings = []): PaymentMethod;
-
     /** @return array<Component> */
     public function form(): array;
 
     /** @param array<string, mixed> $settings */
     public function validate(array $settings): bool;
+
+    /** @param array<string, mixed> $settings */
+    public function define(array $settings = []): PaymentMethod;
 }

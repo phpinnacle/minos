@@ -19,11 +19,6 @@ readonly class Adjustment
         return new self($label, AdjustmentType::Discount, $amount, $description);
     }
 
-    public static function fee(string $label, Money $amount, ?string $description = null): self
-    {
-        return new self($label, AdjustmentType::Fee, $amount, $description);
-    }
-
     public static function shipping(string $label, Money $amount, ?string $description = null): self
     {
         return new self($label, AdjustmentType::Shipping, $amount, $description);
@@ -32,6 +27,11 @@ readonly class Adjustment
     public static function tax(string $label, Money $amount, ?string $description = null): self
     {
         return new self($label, AdjustmentType::Tax, $amount, $description);
+    }
+
+    public static function fee(string $label, Money $amount, ?string $description = null): self
+    {
+        return new self($label, AdjustmentType::Fee, $amount, $description);
     }
 
     public function apply(Money $amount): Money

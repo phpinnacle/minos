@@ -26,6 +26,32 @@ readonly class Intent
         public bool $recurring = false,
     ) {}
 
+    public function total(): Money
+    {
+        $total = Money::sum(...array_map(fn (IntentLine $line) => $line->price->mul($line->qty), $this->lines));
+
+        foreach ($this->adjustments as $adjustment) {
+            $total = $adjustment->apply($total);
+        }
+
+        return $total;
+    }
+
+    public function tax(string $currency): Money
+    {
+        return $this->calculate($currency, AdjustmentType::Tax);
+    }
+
+    public function discount(string $currency): Money
+    {
+        return $this->calculate($currency, AdjustmentType::Discount);
+    }
+
+    public function find(AdjustmentType $type): ?Adjustment
+    {
+        return array_find($this->adjustments, fn (Adjustment $adjustment) => $adjustment->type === $type);
+    }
+
     public function calculate(string $currency, AdjustmentType $type): Money
     {
         $amount = Money::zero($currency);
@@ -39,31 +65,5 @@ readonly class Intent
         }
 
         return $amount;
-    }
-
-    public function discount(string $currency): Money
-    {
-        return $this->calculate($currency, AdjustmentType::Discount);
-    }
-
-    public function find(AdjustmentType $type): ?Adjustment
-    {
-        return array_find($this->adjustments, fn (Adjustment $adjustment) => $adjustment->type === $type);
-    }
-
-    public function tax(string $currency): Money
-    {
-        return $this->calculate($currency, AdjustmentType::Tax);
-    }
-
-    public function total(): Money
-    {
-        $total = Money::sum(...array_map(fn (IntentLine $line) => $line->price->mul($line->qty), $this->lines));
-
-        foreach ($this->adjustments as $adjustment) {
-            $total = $adjustment->apply($total);
-        }
-
-        return $total;
     }
 }

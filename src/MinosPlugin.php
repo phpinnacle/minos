@@ -16,6 +16,11 @@ class MinosPlugin implements Plugin
 
     private array $providers = [];
 
+    public static function make(): static
+    {
+        return app(static::class);
+    }
+
     public static function get(): static
     {
         // @mago-expect lint:inline-variable-return
@@ -25,23 +30,9 @@ class MinosPlugin implements Plugin
         return $plugin;
     }
 
-    public static function make(): static
-    {
-        return app(static::class);
-    }
-
-    public function boot(Panel $panel): void {}
-
     public function getId(): string
     {
         return 'phpinnacle/minos';
-    }
-
-    public function loadProviders(ProviderRegistry $registry): void
-    {
-        foreach ($this->providers as $provider) {
-            $registry->register(...Arr::wrap($this->evaluate($provider)));
-        }
     }
 
     public function providers(Closure|PaymentProvider ...$providers): self
@@ -61,4 +52,13 @@ class MinosPlugin implements Plugin
             Resources\Plans\PlanResource::class,
         ]);
     }
+
+    public function loadProviders(ProviderRegistry $registry): void
+    {
+        foreach ($this->providers as $provider) {
+            $registry->register(...Arr::wrap($this->evaluate($provider)));
+        }
+    }
+
+    public function boot(Panel $panel): void {}
 }

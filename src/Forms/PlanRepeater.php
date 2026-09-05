@@ -22,13 +22,6 @@ class PlanRepeater extends Repeater
         return 'payments';
     }
 
-    public function expectedAmount(Closure|Money $amount): self
-    {
-        $this->expectedAmount = $amount;
-
-        return $this;
-    }
-
     public function setUp(): void
     {
         parent::setUp();
@@ -67,12 +60,11 @@ class PlanRepeater extends Repeater
             ]);
     }
 
-    private function lastDate(): DateTimeInterface
+    public function expectedAmount(Closure|Money $amount): self
     {
-        $dates = array_filter(array_column($this->getState(), 'sale_at'));
-        $dates = array_map(fn ($date) => CarbonImmutable::parse($date)->endOfDay(), $dates);
+        $this->expectedAmount = $amount;
 
-        return $dates !== [] ? max($dates)->addDays(1) : CarbonImmutable::now()->endOfDay()->addDay();
+        return $this;
     }
 
     private function leftAmount(): ?Money
@@ -81,5 +73,13 @@ class PlanRepeater extends Repeater
         $amounts = array_filter(array_column($this->getState(), 'amount'));
 
         return $amounts !== [] ? $expected?->sub(Money::sum(...$amounts)) : $expected;
+    }
+
+    private function lastDate(): DateTimeInterface
+    {
+        $dates = array_filter(array_column($this->getState(), 'sale_at'));
+        $dates = array_map(fn ($date) => CarbonImmutable::parse($date)->endOfDay(), $dates);
+
+        return $dates !== [] ? max($dates)->addDays(1) : CarbonImmutable::now()->endOfDay()->addDay();
     }
 }

@@ -17,13 +17,6 @@ class MethodSelect extends Select
         return 'method_id';
     }
 
-    public function online(bool $online): self
-    {
-        $this->online = $online;
-
-        return $this;
-    }
-
     public function setUp(): void
     {
         parent::setUp();
@@ -40,6 +33,13 @@ class MethodSelect extends Select
     public function table(): self
     {
         return $this->prefixIcon(null);
+    }
+
+    public function online(bool $online): self
+    {
+        $this->online = $online;
+
+        return $this;
     }
 
     public function withDefault(): self

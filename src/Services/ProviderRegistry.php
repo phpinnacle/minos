@@ -15,6 +15,18 @@ class ProviderRegistry implements Countable
      */
     private array $items = [];
 
+    public function register(PaymentProvider ...$providers): void
+    {
+        foreach ($providers as $provider) {
+            $this->items[$provider->key()] = $provider;
+        }
+    }
+
+    public function get(string $key): ?PaymentProvider
+    {
+        return $this->items[$key] ?? null;
+    }
+
     /**
      * @return Collection<PaymentProvider>
      */
@@ -26,17 +38,5 @@ class ProviderRegistry implements Countable
     public function count(): int
     {
         return count($this->items);
-    }
-
-    public function get(string $key): ?PaymentProvider
-    {
-        return $this->items[$key] ?? null;
-    }
-
-    public function register(PaymentProvider ...$providers): void
-    {
-        foreach ($providers as $provider) {
-            $this->items[$provider->key()] = $provider;
-        }
     }
 }

@@ -35,6 +35,11 @@ readonly class CardClient
         private int $timeout = 0,
     ) {}
 
+    public static function make(string $shopId, string $privateKey, bool $test = false, int $timeout = 0): self
+    {
+        return new self($shopId, $privateKey, $test, $timeout);
+    }
+
     public static function create(array $settings): self
     {
         return self::make(
@@ -45,9 +50,9 @@ readonly class CardClient
         );
     }
 
-    public static function make(string $shopId, string $privateKey, bool $test = false, int $timeout = 0): self
+    public function payment(Intent $intent): Continuation
     {
-        return new self($shopId, $privateKey, $test, $timeout);
+        return $this->request(self::TRANSACTION_PAYMENT, $intent);
     }
 
     public function authorize(Intent $intent): Continuation
@@ -55,9 +60,33 @@ readonly class CardClient
         return $this->request(self::TRANSACTION_AUTHORIZE, $intent);
     }
 
-    public function payment(Intent $intent): Continuation
+    private function request(string $type, Intent $intent): Continuation
     {
-        return $this->request(self::TRANSACTION_PAYMENT, $intent);
+        $expires = $this->timeout > 0 ? Date::now()->addSeconds($this->timeout) : null;
+        $response = Http::asJson()
+            ->withBasicAuth($this->shopId, $this->privateKey)
+            ->post(sprintf('%s/%s', self::BASE_URL, $type), [
+                'request' => $this->payload($intent, $expires, $this->test),
+            ])
+            ->json();
+
+        $decision = match ($response['transaction']['status']) {
+            'successful' => Decision::Success,
+            'failed' => Decision::Failure,
+            default => Decision::Pending,
+        };
+
+        return new Continuation(
+            decision: $decision,
+            externalId: $response['transaction']['uid'] ?? null,
+            expiresAt: $expires,
+            response: $response,
+            metadata: [
+                'redirect' => $response['transaction']['redirect_url'] ?? null,
+                'receipt' => $response['transaction']['receipt_url'] ?? null,
+                'message' => $response['response']['message'] ?? null,
+            ],
+        );
     }
 
     private function payload(Intent $intent, ?DateTimeInterface $expiresAt, bool $test): array
@@ -144,34 +173,5 @@ readonly class CardClient
         }
 
         return $payload;
-    }
-
-    private function request(string $type, Intent $intent): Continuation
-    {
-        $expires = $this->timeout > 0 ? Date::now()->addSeconds($this->timeout) : null;
-        $response = Http::asJson()
-            ->withBasicAuth($this->shopId, $this->privateKey)
-            ->post(sprintf('%s/%s', self::BASE_URL, $type), [
-                'request' => $this->payload($intent, $expires, $this->test),
-            ])
-            ->json();
-
-        $decision = match ($response['transaction']['status']) {
-            'successful' => Decision::Success,
-            'failed' => Decision::Failure,
-            default => Decision::Pending,
-        };
-
-        return new Continuation(
-            decision: $decision,
-            externalId: $response['transaction']['uid'] ?? null,
-            expiresAt: $expires,
-            response: $response,
-            metadata: [
-                'redirect' => $response['transaction']['redirect_url'] ?? null,
-                'receipt' => $response['transaction']['receipt_url'] ?? null,
-                'message' => $response['response']['message'] ?? null,
-            ],
-        );
     }
 }

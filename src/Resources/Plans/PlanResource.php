@@ -13,9 +13,9 @@ class PlanResource extends Resource
 
     protected static ?string $recordTitleAttribute = 'name';
 
-    public static function form(Schema $schema): Schema
+    public static function getNavigationLabel(): string
     {
-        return Schemas\PlanForm::configure($schema);
+        return __('phpinnacle-minos::resources.payment_plan.label');
     }
 
     public static function getNavigationGroup(): string
@@ -28,14 +28,19 @@ class PlanResource extends Resource
         return config('phpinnacle-minos.navigation.payment_plan.icon');
     }
 
-    public static function getNavigationLabel(): string
-    {
-        return __('phpinnacle-minos::resources.payment_plan.label');
-    }
-
     public static function getNavigationSort(): ?int
     {
         return config('phpinnacle-minos.navigation.payment_plan.sort');
+    }
+
+    public static function form(Schema $schema): Schema
+    {
+        return Schemas\PlanForm::configure($schema);
+    }
+
+    public static function table(Table $table): Table
+    {
+        return Tables\PlansTable::configure($table);
     }
 
     public static function getPages(): array
@@ -45,10 +50,5 @@ class PlanResource extends Resource
             'create' => Pages\CreatePlan::route('/create'),
             'edit' => Pages\EditPlan::route('/{record}/edit'),
         ];
-    }
-
-    public static function table(Table $table): Table
-    {
-        return Tables\PlansTable::configure($table);
     }
 }

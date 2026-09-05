@@ -11,11 +11,34 @@ use PHPinnacle\Minos\Models\PaymentMethod;
 
 class Bank extends Base
 {
-    public function abilities(): array
+    public function key(): string
     {
-        return [
-            Ability::Offline,
-        ];
+        return 'bank';
+    }
+
+    public function getColor(): array
+    {
+        return Color::Blue;
+    }
+
+    public function getIcon(): string
+    {
+        return 'phosphor-bank';
+    }
+
+    public function getDescription(): string
+    {
+        return __('phpinnacle-minos::providers.bank.description');
+    }
+
+    public function getLabel(): string
+    {
+        return __('phpinnacle-minos::providers.bank.label');
+    }
+
+    public function validate(array $settings): bool
+    {
+        return ($settings['name'] ?? null) !== null && ($settings['account'] ?? null) !== null;
     }
 
     public function define(array $settings = []): PaymentMethod
@@ -41,38 +64,15 @@ class Bank extends Base
         ];
     }
 
-    public function getColor(): array
+    public function abilities(): array
     {
-        return Color::Blue;
-    }
-
-    public function getDescription(): string
-    {
-        return __('phpinnacle-minos::providers.bank.description');
-    }
-
-    public function getIcon(): string
-    {
-        return 'phosphor-bank';
-    }
-
-    public function getLabel(): string
-    {
-        return __('phpinnacle-minos::providers.bank.label');
+        return [
+            Ability::Offline,
+        ];
     }
 
     public function intent(Intent $intent): Continuation
     {
         return Continuation::success();
-    }
-
-    public function key(): string
-    {
-        return 'bank';
-    }
-
-    public function validate(array $settings): bool
-    {
-        return ($settings['name'] ?? null) !== null && ($settings['account'] ?? null) !== null;
     }
 }

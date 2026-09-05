@@ -17,12 +17,11 @@ readonly class PaymentScheme implements Arrayable, Countable, Wireable
         public Collection $parts,
     ) {}
 
-    public static function attribute(string $field = 'scheme'): Attribute
+    public static function once(Money $amount, CarbonImmutable $date): self
     {
-        return Attribute::make(
-            get: fn (string $value) => self::create(json_decode($value, true)),
-            set: fn (self $value) => [$field => json_encode($value->toArray())],
-        );
+        return new self(collect([
+            new PaymentPart($amount, $date),
+        ]));
     }
 
     public static function create(array $value): self
@@ -35,16 +34,17 @@ readonly class PaymentScheme implements Arrayable, Countable, Wireable
         );
     }
 
+    public static function attribute(string $field = 'scheme'): Attribute
+    {
+        return Attribute::make(
+            get: fn (string $value) => self::create(json_decode($value, true)),
+            set: fn (self $value) => [$field => json_encode($value->toArray())],
+        );
+    }
+
     public static function fromLivewire($value): self
     {
         return $value !== null ? self::create($value) : new self(collect());
-    }
-
-    public static function once(Money $amount, CarbonImmutable $date): self
-    {
-        return new self(collect([
-            new PaymentPart($amount, $date),
-        ]));
     }
 
     public function adjust(Money $amount): self
@@ -59,9 +59,9 @@ readonly class PaymentScheme implements Arrayable, Countable, Wireable
         return new self($this->parts->skip(1)->prepend($first->add($amount)));
     }
 
-    public function count(): int
+    public function starts(): ?CarbonImmutable
     {
-        return $this->parts->count();
+        return $this->parts->first()?->date;
     }
 
     public function expires(): ?CarbonImmutable
@@ -69,14 +69,14 @@ readonly class PaymentScheme implements Arrayable, Countable, Wireable
         return $this->parts->last()?->date;
     }
 
-    public function render(): array
+    public function total(): Money
     {
-        return $this->parts->map(fn (PaymentPart $part) => $part->toArray())->all();
+        return Money::sum(...$this->parts->map(fn (PaymentPart $part) => $part->amount));
     }
 
-    public function starts(): ?CarbonImmutable
+    public function count(): int
     {
-        return $this->parts->first()?->date;
+        return $this->parts->count();
     }
 
     public function toArray(): array
@@ -89,8 +89,8 @@ readonly class PaymentScheme implements Arrayable, Countable, Wireable
         return $this->parts->map(fn (PaymentPart $part) => $part->toLivewire())->all();
     }
 
-    public function total(): Money
+    public function render(): array
     {
-        return Money::sum(...$this->parts->map(fn (PaymentPart $part) => $part->amount));
+        return $this->parts->map(fn (PaymentPart $part) => $part->toArray())->all();
     }
 }

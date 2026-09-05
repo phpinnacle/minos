@@ -25,11 +25,34 @@ class WebPay extends Base
         'without_3ds',
     ];
 
-    public function abilities(): array
+    public function key(): string
     {
-        return [
-            Ability::Online,
-        ];
+        return 'webpay';
+    }
+
+    public function getColor(): array
+    {
+        return Color::Blue;
+    }
+
+    public function getIcon(): string
+    {
+        return 'phosphor-credit-card';
+    }
+
+    public function getDescription(): string
+    {
+        return __('phpinnacle-minos::providers.webpay.description');
+    }
+
+    public function getLabel(): string
+    {
+        return __('phpinnacle-minos::providers.webpay.label');
+    }
+
+    public function validate(array $settings): bool
+    {
+        return ($settings['shop_id'] ?? null) !== null && ($settings['secret_key'] ?? null) !== null;
     }
 
     public function form(): array
@@ -73,24 +96,16 @@ class WebPay extends Base
         ];
     }
 
-    public function getColor(): array
+    public function abilities(): array
     {
-        return Color::Blue;
+        return [
+            Ability::Online,
+        ];
     }
 
-    public function getDescription(): string
+    public function intent(Intent $intent): Continuation
     {
-        return __('phpinnacle-minos::providers.webpay.description');
-    }
-
-    public function getIcon(): string
-    {
-        return 'phosphor-credit-card';
-    }
-
-    public function getLabel(): string
-    {
-        return __('phpinnacle-minos::providers.webpay.label');
+        return CardClient::create($intent->method->settings)->payment($intent);
     }
 
     public function handle(Notification $notification): Continuation
@@ -124,20 +139,5 @@ class WebPay extends Base
                 'reason' => $payload['rc_text'] ?? null,
             ],
         );
-    }
-
-    public function intent(Intent $intent): Continuation
-    {
-        return CardClient::create($intent->method->settings)->payment($intent);
-    }
-
-    public function key(): string
-    {
-        return 'webpay';
-    }
-
-    public function validate(array $settings): bool
-    {
-        return ($settings['shop_id'] ?? null) !== null && ($settings['secret_key'] ?? null) !== null;
     }
 }
