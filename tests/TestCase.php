@@ -23,7 +23,7 @@ abstract class TestCase extends Orchestra
         )['packages'];
 
         $providers = array_merge(...array_map(
-            static fn (array $package): array => $package['extra']['laravel']['providers'] ?? [],
+            static fn (array $package) => $package['extra']['laravel']['providers'] ?? [],
             $packages,
         ));
 
