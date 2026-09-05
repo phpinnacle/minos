@@ -32,6 +32,9 @@ readonly class CardClient
         return new self($shopId, $privateKey, $test, $timeout);
     }
 
+    /**
+     * @param array{shop_id: string, secret_key: string, test_mode?: bool, timeout?: int|numeric-string} $settings
+     */
     public static function create(array $settings): self
     {
         return self::make(
@@ -81,6 +84,9 @@ readonly class CardClient
         );
     }
 
+    /**
+     * @return array<string, mixed>
+     */
     private function payload(Intent $intent, ?DateTimeInterface $expiresAt, bool $test): array
     {
         $total = $intent->total();

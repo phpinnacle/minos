@@ -28,7 +28,7 @@ class ProviderRegistry implements Countable
     }
 
     /**
-     * @return Collection<PaymentProvider>
+     * @return Collection<class-string<PaymentProvider>, PaymentProvider>
      */
     public function all(): Collection
     {

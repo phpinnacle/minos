@@ -20,6 +20,9 @@ readonly class EripClient
         private int $timeout = 0,
     ) {}
 
+    /**
+     * @param array{shop_id: string, secret_key: string, test_mode?: bool, timeout?: int|numeric-string} $settings
+     */
     public static function create(array $settings): self
     {
         return self::make($settings['shop_id'], $settings['secret_key'], (int) ($settings['timeout'] ?? 0));
@@ -61,6 +64,9 @@ readonly class EripClient
         );
     }
 
+    /**
+     * @return list<string>
+     */
     private static function explode(string $value, string $delimiter = \PHP_EOL): array
     {
         return array_values(array_filter(
@@ -69,6 +75,9 @@ readonly class EripClient
         ));
     }
 
+    /**
+     * @return array<string, mixed>
+     */
     private function payload(Intent $intent, ?DateTimeInterface $expiresAt): array
     {
         $total = $intent->total();

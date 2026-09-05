@@ -10,10 +10,11 @@ use Illuminate\Support\Collection;
 use Livewire\Wireable;
 use PHPinnacle\Money\Money;
 
+/** @implements Arrayable<int, array{amount: Money, date: CarbonImmutable}> */
 readonly class PaymentScheme implements Arrayable, Countable, Wireable
 {
+    /** @param Collection<int, PaymentPart> $parts */
     public function __construct(
-        /** @var Collection<PaymentPart> $parts */
         public Collection $parts,
     ) {}
 
@@ -24,6 +25,9 @@ readonly class PaymentScheme implements Arrayable, Countable, Wireable
         ]));
     }
 
+    /**
+     * @param array<array-key, PaymentPart|array{amount?: Money|array{amount: int|string|null, currency?: string|null}|null, date?: string|\DateTimeInterface|null}> $value
+     */
     public static function create(array $value): self
     {
         return new self(
@@ -34,6 +38,9 @@ readonly class PaymentScheme implements Arrayable, Countable, Wireable
         );
     }
 
+    /**
+     * @return Attribute<self, self>
+     */
     public static function attribute(string $field = 'scheme'): Attribute
     {
         return Attribute::make(
@@ -42,7 +49,7 @@ readonly class PaymentScheme implements Arrayable, Countable, Wireable
         );
     }
 
-    public static function fromLivewire($value): self
+    public static function fromLivewire(mixed $value): self
     {
         return $value !== null ? self::create($value) : new self(collect());
     }
@@ -84,11 +91,17 @@ readonly class PaymentScheme implements Arrayable, Countable, Wireable
         return $this->parts->map(fn (PaymentPart $part) => $part->toArray())->all();
     }
 
+    /**
+     * @return array<int, array{amount: array{amount: string, currency: string}, date: CarbonImmutable}>
+     */
     public function toLivewire(): array
     {
         return $this->parts->map(fn (PaymentPart $part) => $part->toLivewire())->all();
     }
 
+    /**
+     * @return array<int, array{amount: Money, date: CarbonImmutable}>
+     */
     public function render(): array
     {
         return $this->parts->map(fn (PaymentPart $part) => $part->toArray())->all();

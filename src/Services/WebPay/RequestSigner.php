@@ -13,6 +13,9 @@ readonly class RequestSigner
         return new self($key);
     }
 
+    /**
+     * @param array{wsb_seed: int, wsb_storeid: string, wsb_order_num: string, wsb_test: bool, wsb_currency_id: string, wsb_total: float} $data
+     */
     public function sign(array $data): string
     {
         return sha1(implode('', [
@@ -26,6 +29,9 @@ readonly class RequestSigner
         ]));
     }
 
+    /**
+     * @param array<string, scalar|null> $data
+     */
     public function verify(array $data): bool
     {
         $signature = md5(implode('', [

@@ -20,6 +20,9 @@ readonly class CardClient
 
     private const string METHOD_CARD = 'cardPayment';
 
+    /**
+     * @param array{shop_name?: string|null, security_mode?: string|null, redirect?: bool|null} $settings
+     */
     public function __construct(
         private string $shopId,
         private RequestSigner $signer,
@@ -27,11 +30,17 @@ readonly class CardClient
         private array $settings = [],
     ) {}
 
+    /**
+     * @param array{shop_name?: string|null, security_mode?: string|null, redirect?: bool|null} $settings
+     */
     public static function make(string $shopId, string $secretKey, array $settings, bool $testMode = false): self
     {
         return new self($shopId, new RequestSigner($secretKey), $testMode, $settings);
     }
 
+    /**
+     * @param array{shop_id: string, secret_key: string, test_mode?: bool, shop_name?: string|null, security_mode?: string|null, redirect?: bool|null} $settings
+     */
     public static function create(array $settings): self
     {
         $testMode = (bool) ($settings['test_mode'] ?? false);
@@ -51,6 +60,9 @@ readonly class CardClient
         );
     }
 
+    /**
+     * @return array<string, mixed>
+     */
     private function payload(Intent $intent): array
     {
         $total = $intent->total();

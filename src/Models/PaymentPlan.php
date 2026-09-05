@@ -14,7 +14,7 @@ use PHPinnacle\Money\Money;
  * @property string $id
  * @property string $key
  * @property string $name
- * @property array $parts
+ * @property list<array{value: int|numeric-string, delay: int|numeric-string}> $parts
  * @property int $sort
  * @property bool $is_active
  * @property bool $is_default
@@ -50,6 +50,9 @@ class PaymentPlan extends Model
         'is_active',
     ];
 
+    /**
+     * @return Builder<self>
+     */
     public static function active(): Builder
     {
         return self::query()->where('is_active', true)->orderBy('sort');
@@ -65,6 +68,9 @@ class PaymentPlan extends Model
         return self::query()->where('is_active', true)->findOrFail($id);
     }
 
+    /**
+     * @return Collection<string, string>
+     */
     public static function list(): Collection
     {
         return self::active()->pluck('name', 'id');
