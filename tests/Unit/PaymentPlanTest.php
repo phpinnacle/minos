@@ -5,7 +5,7 @@ use PHPinnacle\Minos\Models\PaymentPlan;
 use PHPinnacle\Money\Money;
 
 it('splits the price into parts according to the configured ratios and delays', function () {
-    $plan = paymentPlan([
+    $plan = payment_plan([
         ['value' => 50, 'delay' => 0],
         ['value' => 25, 'delay' => 15],
         ['value' => 25, 'delay' => 30],
@@ -32,7 +32,7 @@ it('splits the price into parts according to the configured ratios and delays', 
 });
 
 it('redistributes the remaining minor unit when the ratios do not divide evenly', function () {
-    $plan = paymentPlan([
+    $plan = payment_plan([
         ['value' => 1, 'delay' => 0],
         ['value' => 1, 'delay' => 10],
         ['value' => 1, 'delay' => 20],
@@ -51,7 +51,7 @@ it('redistributes the remaining minor unit when the ratios do not divide evenly'
 });
 
 it('reorders parts chronologically even when the configuration lists a later delay first', function () {
-    $plan = paymentPlan([
+    $plan = payment_plan([
         ['value' => 25, 'delay' => 30],
         ['value' => 75, 'delay' => 0],
     ]);
@@ -72,7 +72,7 @@ it('reorders parts chronologically even when the configuration lists a later del
         ->toBe('2026-01-31');
 });
 
-function paymentPlan(array $parts): PaymentPlan
+function payment_plan(array $parts): PaymentPlan
 {
     $plan = new PaymentPlan;
     $plan->forceFill(['parts' => $parts]);
