@@ -20,14 +20,6 @@ readonly class CardClient
 
     private const string TRANSACTION_AUTHORIZE = 'transactions/authorizations';
 
-    private const string TRANSACTION_CAPTURE = 'transactions/captures';
-
-    private const string TRANSACTION_VOID = 'transactions/voids';
-
-    private const string TRANSACTION_PAYOUT = 'transactions/payouts';
-
-    private const string TRANSACTION_REFUND = 'transactions/refunds';
-
     public function __construct(
         private string $shopId,
         private string $privateKey,
