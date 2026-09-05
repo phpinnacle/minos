@@ -70,19 +70,6 @@ class PaymentPlan extends Model
         return self::active()->pluck('name', 'id');
     }
 
-    protected static function booted(): void
-    {
-        self::creating(function (self $record) {
-            reset_sort($record);
-        });
-
-        self::saving(function (self $record) {
-            $record->key ??= Str::slug($record->name);
-
-            reset_default($record);
-        });
-    }
-
     public function scheme(Money $price, ?DateTimeInterface $saleAt = null): PaymentScheme
     {
         $ratios = array_map(intval(...), array_column($this->parts, 'value'));
@@ -116,5 +103,18 @@ class PaymentPlan extends Model
 
         $this->is_default = true;
         $this->save();
+    }
+
+    protected static function booted(): void
+    {
+        self::creating(function (self $record) {
+            reset_sort($record);
+        });
+
+        self::saving(function (self $record) {
+            $record->key ??= Str::slug($record->name);
+
+            reset_default($record);
+        });
     }
 }

@@ -92,17 +92,6 @@ class PaymentMethod extends Model implements HasLabel
         return $query->pluck('name', 'id');
     }
 
-    protected static function booted(): void
-    {
-        self::creating(function (self $record) {
-            reset_sort($record);
-        });
-
-        self::saving(function (self $record) {
-            reset_default($record);
-        });
-    }
-
     public function getLabel(): string
     {
         return $this->name;
@@ -131,5 +120,16 @@ class PaymentMethod extends Model implements HasLabel
 
         $this->is_default = !$this->is_default;
         $this->save();
+    }
+
+    protected static function booted(): void
+    {
+        self::creating(function (self $record) {
+            reset_sort($record);
+        });
+
+        self::saving(function (self $record) {
+            reset_default($record);
+        });
     }
 }

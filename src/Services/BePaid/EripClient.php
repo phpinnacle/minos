@@ -30,14 +30,6 @@ readonly class EripClient
         return new self($shopId, $privateKey, $timeout);
     }
 
-    private static function explode(string $value, string $delimiter = \PHP_EOL): array
-    {
-        return array_values(array_filter(
-            array_map(fn (string $v) => trim($v), explode($delimiter, $value)),
-            fn (string $v) => $v !== '',
-        ));
-    }
-
     public function payment(Intent $intent): Continuation
     {
         $expires = $this->timeout > 0 ? Date::now()->addSeconds($this->timeout) : null;
@@ -67,6 +59,14 @@ readonly class EripClient
                 'banks' => $response['transaction']['erip']['banks'] ?? [],
             ],
         );
+    }
+
+    private static function explode(string $value, string $delimiter = \PHP_EOL): array
+    {
+        return array_values(array_filter(
+            array_map(fn (string $v) => trim($v), explode($delimiter, $value)),
+            fn (string $v) => $v !== '',
+        ));
     }
 
     private function payload(Intent $intent, ?DateTimeInterface $expiresAt): array
