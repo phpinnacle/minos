@@ -29,7 +29,7 @@ readonly class PaymentScheme implements Arrayable, Countable, Wireable
     {
         return new self(
             collect($value)
-                ->map(fn (PaymentPart|array $item) => PaymentPart::resolve($item))
+                ->map(PaymentPart::resolve(...))
                 ->sortBy(fn (PaymentPart $item) => $item->date)
                 ->values(),
         );
