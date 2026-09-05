@@ -73,6 +73,6 @@ class Bank extends Base
 
     public function validate(array $settings): bool
     {
-        return isset($settings['name'], $settings['account']);
+        return ($settings['name'] ?? null) !== null && ($settings['account'] ?? null) !== null;
     }
 }

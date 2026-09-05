@@ -138,6 +138,6 @@ class WebPay extends Base
 
     public function validate(array $settings): bool
     {
-        return isset($settings['shop_id'], $settings['secret_key']);
+        return ($settings['shop_id'] ?? null) !== null && ($settings['secret_key'] ?? null) !== null;
     }
 }

@@ -243,13 +243,17 @@ class BePaid extends Base
     /** @param array<string, mixed> $settings */
     public function validate(array $settings): bool
     {
-        return isset($settings['shop_id'], $settings['public_key'], $settings['secret_key']);
+        return (
+            ($settings['shop_id'] ?? null) !== null
+            && ($settings['public_key'] ?? null) !== null
+            && ($settings['secret_key'] ?? null) !== null
+        );
     }
 
     /** @param array<string, mixed> $cardData */
     private function persistCard(PaymentMethod|string $method, Payer $payer, array $cardData): ?CreditCard
     {
-        if (!isset($cardData['token'])) {
+        if (($cardData['token'] ?? null) === null) {
             return null;
         }
 

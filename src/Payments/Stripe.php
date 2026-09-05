@@ -90,7 +90,7 @@ class Stripe extends Base
 
     public function validate(array $settings): bool
     {
-        return isset($settings['api_key'], $settings['public_key']);
+        return ($settings['api_key'] ?? null) !== null && ($settings['public_key'] ?? null) !== null;
     }
 
     /** @return array<string, mixed> */

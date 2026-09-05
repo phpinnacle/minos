@@ -17,7 +17,7 @@ readonly class PaymentPart implements Arrayable, Wireable
 
     public static function create(array $data): self
     {
-        return isset($data['amount'], $data['date'])
+        return ($data['amount'] ?? null) !== null && ($data['date'] ?? null) !== null
             ? new self(Money::parse($data['amount']), CarbonImmutable::parse($data['date']))
             : throw new InvalidArgumentException('Invalid data provided for payment part.');
     }
