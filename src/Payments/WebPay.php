@@ -103,8 +103,8 @@ class WebPay extends Base
         }
 
         $code = (int) $payload['payment_type'];
-        $success = in_array($code, [1, 4]);
-        $failure = in_array($code, [5, 7, 9, 11]);
+        $success = in_array($code, [1, 4], strict: true);
+        $failure = in_array($code, [5, 7, 9, 11], strict: true);
         $decision = Decision::Pending;
 
         if ($success) {
