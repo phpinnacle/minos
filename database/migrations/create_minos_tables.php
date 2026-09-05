@@ -6,17 +6,6 @@ use Illuminate\Support\Facades\Schema;
 use PHPinnacle\Minos\Models\PaymentMethod;
 
 return new class extends Migration {
-    public function down(): void
-    {
-        Schema::dropIfExists('payment_plans');
-        Schema::dropIfExists('payment_methods');
-    }
-
-    public function getConnection(): ?string
-    {
-        return config('phpinnacle-minos.connection');
-    }
-
     public function up(): void
     {
         /** @see PaymentMethod */
@@ -83,6 +72,17 @@ return new class extends Migration {
             $table->dateTime('expires_at');
             $table->timestamps();
         });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('payment_plans');
+        Schema::dropIfExists('payment_methods');
+    }
+
+    public function getConnection(): ?string
+    {
+        return config('phpinnacle-minos.connection');
     }
 
     private function addTenancy(Blueprint $table): bool
