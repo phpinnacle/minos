@@ -4,27 +4,23 @@ namespace PHPinnacle\Minos\Infolists;
 
 use Closure;
 use Filament\Actions\Action;
-use Filament\Forms\Components\TextInput;
 use Filament\Infolists\Components\Entry;
-use Filament\Notifications\Notification;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Str;
-use InvalidArgumentException;
 use PHPinnacle\Minos\Contracts\AuthorizationGateway;
 use PHPinnacle\Minos\Contracts\QueuedGateway;
 use PHPinnacle\Minos\Contracts\RefundGateway;
 use PHPinnacle\Minos\Enums\TransactionStatus;
 use PHPinnacle\Minos\Enums\TransactionType;
-use PHPinnacle\Minos\Models\Continuation;
+use PHPinnacle\Minos\Infolists\Actions\CancelTransactionAction;
+use PHPinnacle\Minos\Infolists\Actions\CaptureTransactionAction;
+use PHPinnacle\Minos\Infolists\Actions\RefundTransactionAction;
+use PHPinnacle\Minos\Infolists\Actions\VoidTransactionAction;
 use PHPinnacle\Minos\Models\Transaction;
 use PHPinnacle\Minos\Resources\Transactions\TransactionResource;
-use PHPinnacle\Minos\Services\PaymentManager;
 use PHPinnacle\Minos\Services\ProviderRegistry;
-use PHPinnacle\Money\Forms\MoneyInput;
-use PHPinnacle\Money\Money;
 
 class TransactionHistoryEntry extends Entry
 {
@@ -162,173 +158,15 @@ class TransactionHistoryEntry extends Entry
     public function getDefaultActions(): array
     {
         return [
-            $this->cancelAction(),
-            $this->operationAction('capture'),
-            $this->operationAction('void'),
-            $this->operationAction('refund'),
+            CancelTransactionAction::make()->history($this),
+            CaptureTransactionAction::make()->history($this),
+            VoidTransactionAction::make()->history($this),
+            RefundTransactionAction::make()->history($this),
         ];
-    }
-
-    private function cancelAction(): Action
-    {
-        return Action::make('cancel')
-            ->label('Cancel transaction')
-            ->color('danger')
-            ->link()
-            ->requiresConfirmation()
-            ->modalHeading('Cancel transaction')
-            ->modalDescription('Mark this pending offline transaction as canceled?')
-            ->modalSubmitActionLabel('Cancel transaction')
-            ->action(function (array $arguments, ProviderRegistry $providers) {
-                $transaction = $this->transactionFromArguments($arguments);
-
-                if (!$this->canOperate($transaction, 'cancel', $providers)) {
-                    Notification::make()->title('This operation is no longer available.')->danger()->send();
-
-                    return;
-                }
-
-                $transaction->handle(new Continuation(TransactionStatus::Cancel));
-
-                if ($transaction->status !== TransactionStatus::Cancel) {
-                    Notification::make()->title('This operation is no longer available.')->danger()->send();
-
-                    return;
-                }
-
-                Notification::make()->title('Transaction canceled')->success()->send();
-            });
-    }
-
-    private function operationAction(string $operation): Action
-    {
-        return Action::make($operation)
-            ->label(fn (array $arguments) => $this->actionLabel($operation, $arguments))
-            ->color(match ($operation) {
-                'void' => 'gray',
-                'refund' => 'warning',
-                default => 'primary',
-            })
-            ->link()
-            ->modalHeading(fn (array $arguments) => $this->actionLabel($operation, $arguments))
-            ->modalDescription(fn (array $arguments) => $this->transactionFromArguments($arguments)->method->isOnline()
-                ? 'The request will be sent to the payment provider.'
-                : 'Record this only after the operation has been completed outside this system.')
-            ->modalSubmitActionLabel(fn (array $arguments) => $this->actionLabel($operation, $arguments))
-            ->schema(
-                fn (array $arguments, ProviderRegistry $providers) => $this->operationForm(
-                    $operation,
-                    $arguments,
-                    $providers,
-                ),
-            )
-            ->action(function (
-                Action $action,
-                array $arguments,
-                array $data,
-                PaymentManager $payments,
-                ProviderRegistry $providers,
-            ) use ($operation) {
-                $transaction = $this->transactionFromArguments($arguments);
-
-                if (!$this->canOperate($transaction, $operation, $providers)) {
-                    Notification::make()->title('This operation is no longer available.')->danger()->send();
-
-                    return;
-                }
-
-                $this->performOperation($operation, $transaction, $data, $action, $payments);
-            });
-    }
-
-    /** @param array{transaction: string} $arguments */
-    private function actionLabel(string $operation, array $arguments): string
-    {
-        $online = $this->transactionFromArguments($arguments)->method->isOnline();
-
-        return match ($operation) {
-            'capture' => $online ? 'Capture funds' : 'Record capture',
-            'void' => $online ? 'Release hold' : 'Record hold release',
-            'refund' => $online ? 'Refund payment' : 'Record refund',
-            default => throw new InvalidArgumentException('Unsupported transaction operation.'),
-        };
-    }
-
-    /**
-     * @param array{transaction: string} $arguments
-     * @return array<MoneyInput|TextInput>
-     */
-    private function operationForm(string $operation, array $arguments, ProviderRegistry $providers): array
-    {
-        $transaction = $this->transactionFromArguments($arguments);
-
-        if (!$this->canOperate($transaction, $operation, $providers)) {
-            throw new ModelNotFoundException;
-        }
-
-        $available = $operation === 'refund' ? $transaction->refundable() : $transaction->capturable();
-        $fields = [
-            MoneyInput::make('amount')
-                ->currencies([$transaction->currency])
-                ->default($available)
-                ->lesser($available)
-                ->required(),
-        ];
-
-        if ($operation === 'refund') {
-            $fields[] = TextInput::make('reason')
-                ->label('Reason for refund')
-                ->required()
-                ->maxLength(255);
-        }
-
-        return $fields;
-    }
-
-    /** @param array{amount: Money, reason?: string} $data */
-    private function performOperation(
-        string $operation,
-        Transaction $transaction,
-        array $data,
-        Action $action,
-        PaymentManager $payments,
-    ): void {
-        $number = Str::upper($operation) . '-' . Str::ulid();
-        $amount = $data['amount'];
-        $available = $operation === 'refund' ? $transaction->refundable() : $transaction->capturable();
-
-        if (
-            $amount->currency !== $transaction->currency
-            || $amount->amount <= 0
-            || !$available->gt($amount, equal: true)
-        ) {
-            Notification::make()
-                ->title("Enter an amount up to {$available->format()}.")
-                ->danger()
-                ->send();
-
-            $action->halt();
-        }
-
-        $created = match ($operation) {
-            'capture' => $payments->capture($transaction, $number, $amount),
-            'void' => $payments->void($transaction, $number, $amount),
-            'refund' => $payments->refund($transaction, $number, $amount, $data['reason']),
-            default => throw new InvalidArgumentException('Unsupported transaction operation.'),
-        };
-
-        if (!$transaction->method->isOnline()) {
-            $created->handle(Continuation::success());
-        }
-
-        Notification::make()
-            ->title($transaction->method->isOnline() ? 'Operation requested' : 'Operation recorded')
-            ->success()
-            ->send();
     }
 
     /** @param array{transaction?: string} $arguments */
-    private function transactionFromArguments(array $arguments): Transaction
+    public function transactionFromArguments(array $arguments): Transaction
     {
         $transactionId = $arguments['transaction'] ?? null;
 

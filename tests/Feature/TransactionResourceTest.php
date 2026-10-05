@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Foundation\Auth\User;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
@@ -19,6 +20,8 @@ use Illuminate\Support\Str;
 use Livewire\Livewire;
 use PHPinnacle\Minos\Contracts\PaymentPayer;
 use PHPinnacle\Minos\Contracts\TransactionSource;
+use PHPinnacle\Minos\Enums\TransactionStatus;
+use PHPinnacle\Minos\Events\TransactionCreated;
 use PHPinnacle\Minos\Infolists\TransactionHistoryEntry;
 use PHPinnacle\Minos\MinosPlugin;
 use PHPinnacle\Minos\Models\Continuation;
@@ -407,6 +410,96 @@ it('reads payment roots from transaction models supplied as raw state', function
     $entry->state([$other]);
 
     expect($entry->getTransactions()->pluck('id')->all())->toBe([$other->id]);
+});
+
+it('records a manual refund from the history and rejects another transaction', function () {
+    $payment = minos_resource_payment('HISTORY-ACTION')->handle(Continuation::success());
+    $other = minos_resource_payment('HISTORY-OUTSIDE')->handle(Continuation::success());
+    $createdStatuses = [];
+    Event::listen(TransactionCreated::class, function (TransactionCreated $event) use (&$createdStatuses) {
+        $createdStatuses[] = $event->transaction->refresh()->status;
+    });
+    $entry = TransactionHistoryEntry::make('history')
+        ->state([$payment])
+        ->manageWhen(true);
+    $actions = collect($entry->getDefaultActions())->keyBy(fn ($action) => $action->getName());
+
+    expect($actions->keys()->all())->toBe(['cancel', 'capture', 'void', 'refund']);
+
+    $refund = $actions->get('refund');
+
+    expect(fn () => $refund->evaluate($refund->getActionFunction(), [
+        'arguments' => ['transaction' => $other->id],
+        'data' => ['amount' => new Money(200, 'USD'), 'reason' => 'Returned item'],
+    ]))
+        ->toThrow(ModelNotFoundException::class);
+
+    $refund->evaluate($refund->getActionFunction(), [
+        'arguments' => ['transaction' => $payment->id],
+        'data' => ['amount' => new Money(200, 'USD'), 'reason' => 'Returned item'],
+    ]);
+
+    $created = $payment->children()->sole();
+
+    expect($created->status)
+        ->toBe(TransactionStatus::Success)
+        ->and($created->reason)
+        ->toBe('Returned item')
+        ->and($payment->received()->amount)
+        ->toBe(800)
+        ->and($other->children()->count())
+        ->toBe(0)
+        ->and($createdStatuses)
+        ->toBe([TransactionStatus::Success]);
+});
+
+it('cancels a pending manual transaction from the history', function () {
+    $payment = minos_resource_payment('HISTORY-CANCEL');
+    $entry = TransactionHistoryEntry::make('history')
+        ->state([$payment])
+        ->manageWhen(true);
+    $cancel = collect($entry->getDefaultActions())->first(fn ($action) => $action->getName() === 'cancel');
+
+    $cancel->evaluate($cancel->getActionFunction(), ['arguments' => ['transaction' => $payment->id]]);
+
+    expect($payment->refresh()->status)->toBe(TransactionStatus::Cancel);
+});
+
+it('records manual capture and void against the same authorization', function () {
+    $method = new Cash()->define();
+    $method->save();
+    $authorization = Transaction::authorize(new Intent(
+        id: (string) Str::uuid(),
+        number: 'AUTH-001',
+        description: 'Order authorization',
+        method: $method,
+        source: new Source('order-1', 'order'),
+        payer: new Payer('customer-1', 'customer'),
+        instrument: null,
+        lines: [new IntentLine('Item', 1, new Money(1000, 'USD'))],
+    ))->handle(Continuation::success());
+    $entry = TransactionHistoryEntry::make('history')
+        ->state([$authorization])
+        ->manageWhen(true);
+    $actions = collect($entry->getDefaultActions())->keyBy(fn ($action) => $action->getName());
+
+    foreach (['capture' => 600, 'void' => 400] as $name => $amount) {
+        $action = $actions->get($name);
+        $action->evaluate($action->getActionFunction(), [
+            'arguments' => ['transaction' => $authorization->id],
+            'data' => ['amount' => new Money($amount, 'USD')],
+        ]);
+    }
+
+    expect($authorization->children()->pluck('status', 'type')->all())
+        ->toBe([
+            'capture' => TransactionStatus::Success,
+            'void' => TransactionStatus::Success,
+        ])
+        ->and($authorization->captured()->amount)
+        ->toBe(600)
+        ->and($authorization->capturable()->isZero())
+        ->toBeTrue();
 });
 
 it('registers the transaction history view', function () {
