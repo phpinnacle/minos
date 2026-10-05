@@ -3,11 +3,12 @@
 namespace PHPinnacle\Minos\Rules;
 
 use Closure;
+use DateTimeInterface;
 use Illuminate\Contracts\Validation\ValidationRule;
+use InvalidArgumentException;
 use PHPinnacle\Minos\Models\PaymentScheme as SchemeModel;
 use PHPinnacle\Money\Comparison;
 use PHPinnacle\Money\Money;
-use Throwable;
 
 readonly class PaymentScheme implements ValidationRule
 {
@@ -33,13 +34,36 @@ readonly class PaymentScheme implements ValidationRule
         }
 
         try {
-            $value = array_map(fn (array $item) => [
-                'amount' => $item[$this->amountField] ?? null,
-                'date' => $item[$this->dateField] ?? null,
-            ], array_values($value));
-            $scheme = SchemeModel::create($value);
+            $parts = [];
 
-            if ($this->amount !== null && !$this->comparison->satisfy($scheme->total(), $this->amount)) {
+            foreach ($value as $item) {
+                if (!is_array($item)) {
+                    $fail('phpinnacle-minos::validation.payment_scheme.invalid')->translate();
+
+                    return;
+                }
+
+                $amount = $item[$this->amountField] ?? null;
+                $date = $item[$this->dateField] ?? null;
+
+                if (
+                    !$this->isAmount($amount)
+                    || !is_string($date)
+                    && !$date instanceof DateTimeInterface
+                    || $date === ''
+                ) {
+                    $fail('phpinnacle-minos::validation.payment_scheme.invalid')->translate();
+
+                    return;
+                }
+
+                $parts[] = ['amount' => $amount, 'date' => $date];
+            }
+
+            $scheme = SchemeModel::create($parts);
+            $total = $scheme->total();
+
+            if ($this->amount !== null && !$this->comparison->satisfy($total, $this->amount)) {
                 $fail(sprintf(
                     'phpinnacle-minos::validation.payment_scheme.amount.%s',
                     $this->comparison->value,
@@ -47,10 +71,20 @@ readonly class PaymentScheme implements ValidationRule
                     'value' => $this->amount->decimal(),
                 ]);
             }
-        } catch (Throwable $e) {
-            $fail('phpinnacle-minos::validation.payment_scheme.invalid')->translate([
-                'error' => $e->getMessage(),
-            ]);
+        } catch (InvalidArgumentException) {
+            $fail('phpinnacle-minos::validation.payment_scheme.invalid')->translate();
         }
+    }
+
+    /** @phpstan-assert-if-true Money|array{amount: int|string, currency: string} $amount */
+    private function isAmount(mixed $amount): bool
+    {
+        return (
+            $amount instanceof Money
+            || is_array($amount)
+            && (is_int($amount['amount'] ?? null) || is_string($amount['amount'] ?? null))
+            && $amount['amount'] !== ''
+            && is_string($amount['currency'] ?? null)
+        );
     }
 }

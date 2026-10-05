@@ -44,8 +44,8 @@ readonly class PaymentScheme implements Arrayable, Countable, Wireable
     public static function attribute(string $field = 'scheme'): Attribute
     {
         return Attribute::make(
-            get: fn (string $value) => self::create(json_decode($value, true)),
-            set: fn (self $value) => [$field => json_encode($value->toArray())],
+            get: fn (string $value) => self::create(json_decode($value, true, flags: JSON_THROW_ON_ERROR)),
+            set: fn (self $value) => [$field => json_encode($value->toArray(), JSON_THROW_ON_ERROR)],
         );
     }
 
@@ -104,6 +104,6 @@ readonly class PaymentScheme implements Arrayable, Countable, Wireable
      */
     public function render(): array
     {
-        return $this->parts->map(fn (PaymentPart $part) => $part->toArray())->all();
+        return $this->toArray();
     }
 }

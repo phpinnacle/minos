@@ -1,6 +1,43 @@
 <?php
 
 return [
+    'transaction' => [
+        'singular' => 'Transaction',
+        'label' => 'Transactions',
+        'group' => 'Sales',
+        'empty' => [
+            'heading' => 'No transactions',
+            'description' => 'Payments and their operations will appear here.',
+            'operations' => 'No child operations',
+        ],
+        'sections' => [
+            'operation' => 'Operation',
+            'balance' => 'Confirmed funds',
+            'details' => 'References and dates',
+            'operations' => 'Child operations',
+        ],
+        'fields' => [
+            'id' => 'Transaction ID',
+            'number' => 'Number',
+            'method' => 'Payment method',
+            'type' => 'Operation type',
+            'status' => 'Operation status',
+            'amount' => 'Amount',
+            'description' => 'Description',
+            'reason' => 'Refund reason',
+            'parent' => 'Parent transaction',
+            'source' => 'Source',
+            'payer' => 'Payer',
+            'external_id' => 'Provider reference',
+            'captured' => 'Captured',
+            'refunded' => 'Refunded',
+            'received' => 'Net received',
+            'expires_at' => 'Expires at',
+            'processed_at' => 'Processed at',
+            'created_at' => 'Created at',
+            'updated_at' => 'Updated at',
+        ],
+    ],
     'payment_method' => [
         'label' => 'Payment Methods',
         'group' => 'Sales',

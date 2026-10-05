@@ -2,6 +2,7 @@
 
 namespace PHPinnacle\Minos;
 
+use PHPinnacle\Minos\Contracts\PaymentProvider;
 use PHPinnacle\Minos\Services\ProviderRegistry;
 use Spatie\LaravelPackageTools\Commands\InstallCommand;
 use Spatie\LaravelPackageTools\Package;
@@ -17,6 +18,7 @@ class MinosServiceProvider extends PackageServiceProvider
             ->name(static::$name)
             ->discoversMigrations()
             ->hasTranslations()
+            ->hasViews()
             ->hasConfigFile()
             ->hasInstallCommand(function (InstallCommand $command) {
                 $command
@@ -30,7 +32,12 @@ class MinosServiceProvider extends PackageServiceProvider
     public function packageRegistered(): void
     {
         $this->callAfterResolving(ProviderRegistry::class, function (ProviderRegistry $registry) {
-            MinosPlugin::get()->loadProviders($registry);
+            /** @var list<class-string<PaymentProvider>> $providers */
+            $providers = config('phpinnacle-minos.providers');
+
+            foreach ($providers as $provider) {
+                $registry->register($this->app->make($provider));
+            }
         });
     }
 }

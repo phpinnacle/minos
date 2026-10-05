@@ -41,6 +41,7 @@ class CreditCard extends Model
 
     protected $casts = [
         'is_active' => 'bool',
+        'is_default' => 'bool',
         'expires_at' => 'immutable_datetime',
     ];
 
@@ -70,15 +71,47 @@ class CreditCard extends Model
     }
 
     /** @return Collection<int, self> */
-    public static function list(string $method, Payer $payer): Collection
+    public static function list(PaymentMethod|string $method, Payer $payer): Collection
     {
-        return self::active()
+        return self::forPayer($method, $payer)->where('is_active', true)->orderBy('sort')->get();
+    }
+
+    /** @return Builder<self> */
+    public static function forPayer(PaymentMethod|string $method, Payer $payer): Builder
+    {
+        return self::query()
             ->where([
-                'method_id' => $method,
+                'method_id' => $method instanceof PaymentMethod ? $method->id : $method,
                 'customer_type' => $payer->type,
                 'customer_id' => $payer->id,
-            ])
-            ->get();
+            ]);
+    }
+
+    public static function usable(string $id, PaymentMethod $method, Payer $payer): self
+    {
+        return self::forPayer($method, $payer)
+            ->whereKey($id)
+            ->where('is_active', true)
+            ->where('expires_at', '>', now())
+            ->firstOrFail();
+    }
+
+    public static function store(PaymentMethod $method, Payer $payer, CardDetails $details): self
+    {
+        $card = self::forPayer($method, $payer)->firstOrNew(['token' => $details->token]);
+        $card->method_id = $method->id;
+        $card->customer_type = $payer->type;
+        $card->customer_id = $payer->id;
+        $card->product = $details->product;
+        $card->country = $details->country;
+        $card->brand = $details->brand;
+        $card->subbrand = $details->subbrand;
+        $card->bin = $details->bin;
+        $card->mask = $details->mask;
+        $card->expires_at = CarbonImmutable::instance($details->expiresAt);
+        $card->save();
+
+        return $card;
     }
 
     public static function find(string $id): ?self

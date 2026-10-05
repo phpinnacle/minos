@@ -4,6 +4,7 @@ namespace PHPinnacle\Minos\Payments;
 
 use BackedEnum;
 use Illuminate\Contracts\Support\Htmlable;
+use LogicException;
 use OpenApi\Attributes as OA;
 use PHPinnacle\Minos\Contracts\PaymentProvider;
 use PHPinnacle\Minos\Models\Continuation;
@@ -66,6 +67,6 @@ abstract class Base implements PaymentProvider
 
     public function handle(Notification $notification): Continuation
     {
-        return Continuation::success();
+        throw new LogicException('This provider does not implement payment notifications.');
     }
 }

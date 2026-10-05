@@ -13,4 +13,9 @@ readonly class IntentLine
         public ?string $description = null,
         public ?string $image = null,
     ) {}
+
+    public function total(): Money
+    {
+        return $this->price->mul($this->qty);
+    }
 }

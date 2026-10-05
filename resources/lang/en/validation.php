@@ -4,6 +4,7 @@ return [
     'payment_parts' => [
         'format' => 'The payment parts must be an array.',
         'empty' => 'The payment parts must not be empty.',
+        'invalid' => 'Each payment part must have an integer percentage from 1 to 100 and a delay from 0 to 365 days.',
         'sum' => 'The sum of payment parts must be 100%.',
     ],
     'payment_scheme' => [

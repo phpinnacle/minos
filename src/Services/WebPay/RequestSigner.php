@@ -30,23 +30,36 @@ readonly class RequestSigner
     }
 
     /**
-     * @param array<string, scalar|null> $data
+     * @param array<string, mixed> $data
      */
     public function verify(array $data): bool
     {
-        $signature = md5(implode('', [
-            $data['batch_timestamp'],
-            $data['currency_id'],
-            $data['amount'],
-            $data['payment_method'],
-            $data['order_id'],
-            $data['site_order_id'],
-            $data['transaction_id'],
-            $data['payment_type'],
-            $data['rrn'],
-            $this->key,
-        ]));
+        if (!is_string($data['wsb_signature'] ?? null)) {
+            return false;
+        }
 
-        return $signature === ($data['wsb_signature'] ?? '');
+        $values = [];
+
+        foreach ([
+            'batch_timestamp',
+            'currency_id',
+            'amount',
+            'payment_method',
+            'order_id',
+            'site_order_id',
+            'transaction_id',
+            'payment_type',
+            'rrn',
+        ] as $field) {
+            if (!array_key_exists($field, $data) || !is_scalar($data[$field]) && $data[$field] !== null) {
+                return false;
+            }
+
+            $values[] = $data[$field];
+        }
+
+        $values[] = $this->key;
+
+        return hash_equals(md5(implode('', $values)), $data['wsb_signature']);
     }
 }

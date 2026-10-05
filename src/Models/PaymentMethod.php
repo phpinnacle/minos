@@ -51,14 +51,17 @@ class PaymentMethod extends Model implements HasLabel
     ];
 
     /** @return Builder<self> */
-    public static function active(): Builder
+    public static function active(?bool $online = null): Builder
     {
-        return self::query()->where('is_active', true)->orderBy('sort');
+        return self::query()
+            ->where('is_active', true)
+            ->orderBy('sort')
+            ->when($online !== null, fn (Builder $query) => $query->where('is_online', $online));
     }
 
-    public static function default(): ?self
+    public static function default(?bool $online = null): ?self
     {
-        return self::query()->where('is_active', true)->where('is_default', true)->first();
+        return self::active($online)->where('is_default', true)->first();
     }
 
     /** @param array<string, mixed> $settings */
@@ -75,7 +78,7 @@ class PaymentMethod extends Model implements HasLabel
 
     public static function get(string|PaymentProvider $id): self
     {
-        [$key, $value] = is_string($id) ? ['id', $id] : ['provider', $id::class];
+        [$key, $value] = is_string($id) ? ['id', $id] : ['provider', $id->key()];
 
         return self::query()->where('is_active', true)->where($key, $value)->sole();
     }
@@ -83,13 +86,7 @@ class PaymentMethod extends Model implements HasLabel
     /** @return Collection<string, string> */
     public static function list(?bool $online = null): Collection
     {
-        $query = self::active();
-
-        if ($online !== null) {
-            $query->where('is_online', $online);
-        }
-
-        return $query->pluck('name', 'id');
+        return self::active($online)->pluck('name', 'id');
     }
 
     public function getLabel(): string

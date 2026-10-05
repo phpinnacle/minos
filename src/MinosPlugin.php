@@ -2,22 +2,19 @@
 
 namespace PHPinnacle\Minos;
 
-use Closure;
 use Filament\Contracts\Plugin;
 use Filament\Panel;
-use Filament\Support\Concerns\EvaluatesClosures;
-use Illuminate\Support\Arr;
-use PHPinnacle\Minos\Contracts\PaymentProvider;
-use PHPinnacle\Minos\Services\ProviderRegistry;
+use PHPinnacle\Minos\Contracts\PaymentPayer;
+use PHPinnacle\Minos\Contracts\TransactionSource;
+use PHPinnacle\Minos\Services\PayerRegistry;
+use PHPinnacle\Minos\Services\SourceRegistry;
 
 class MinosPlugin implements Plugin
 {
-    use EvaluatesClosures;
-
-    /**
-     * @var array<array-key, Closure|PaymentProvider>
-     */
-    private array $providers = [];
+    public function __construct(
+        private readonly SourceRegistry $sources,
+        private readonly PayerRegistry $payers,
+    ) {}
 
     public static function make(): static
     {
@@ -38,12 +35,16 @@ class MinosPlugin implements Plugin
         return 'phpinnacle/minos';
     }
 
-    public function providers(Closure|PaymentProvider ...$providers): self
+    public function sources(TransactionSource ...$sources): static
     {
-        $this->providers = [
-            ...$this->providers,
-            ...$providers,
-        ];
+        $this->sources->register(...$sources);
+
+        return $this;
+    }
+
+    public function payers(PaymentPayer ...$payers): static
+    {
+        $this->payers->register(...$payers);
 
         return $this;
     }
@@ -53,14 +54,8 @@ class MinosPlugin implements Plugin
         $panel->resources([
             Resources\Methods\MethodResource::class,
             Resources\Plans\PlanResource::class,
+            Resources\Transactions\TransactionResource::class,
         ]);
-    }
-
-    public function loadProviders(ProviderRegistry $registry): void
-    {
-        foreach ($this->providers as $provider) {
-            $registry->register(...Arr::wrap($this->evaluate($provider)));
-        }
     }
 
     public function boot(Panel $panel): void {}

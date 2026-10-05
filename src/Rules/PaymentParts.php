@@ -4,6 +4,7 @@ namespace PHPinnacle\Minos\Rules;
 
 use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
+use Illuminate\Support\Facades\Validator;
 
 readonly class PaymentParts implements ValidationRule
 {
@@ -21,9 +22,21 @@ readonly class PaymentParts implements ValidationRule
             return;
         }
 
-        $values = array_map(floatval(...), array_column($value, 'value'));
+        $validator = Validator::make(['parts' => $value], [
+            'parts.*' => ['array'],
+            'parts.*.value' => ['required', 'integer', 'between:1,100'],
+            'parts.*.delay' => ['required', 'integer', 'between:0,365'],
+        ]);
 
-        if (array_sum($values) !== 100.0) {
+        if ($validator->fails()) {
+            $fail('phpinnacle-minos::validation.payment_parts.invalid')->translate();
+
+            return;
+        }
+
+        $values = array_map(intval(...), array_column($validator->validated()['parts'], 'value'));
+
+        if (array_sum($values) !== 100) {
             $fail('phpinnacle-minos::validation.payment_parts.sum')->translate();
         }
     }

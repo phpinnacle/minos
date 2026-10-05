@@ -4,9 +4,10 @@ namespace PHPinnacle\Minos\Services\WebPay;
 
 use Illuminate\Support\Facades\Http;
 use PHPinnacle\Minos\Enums\AdjustmentType;
-use PHPinnacle\Minos\Enums\Decision;
+use PHPinnacle\Minos\Enums\TransactionStatus;
 use PHPinnacle\Minos\Models\Continuation;
 use PHPinnacle\Minos\Models\Intent;
+use UnexpectedValueException;
 
 readonly class CardClient
 {
@@ -52,10 +53,14 @@ readonly class CardClient
     {
         $url = $this->testMode ? self::TEST_URL : self::MAIN_URL;
         $payload = $this->payload($intent);
-        $response = Http::asJson()->post($url, $payload)->json();
+        $response = Http::asJson()->timeout(30)->post($url, $payload)->throw()->json();
+
+        if (!is_array($response) || $response === []) {
+            throw new UnexpectedValueException('WebPay returned an invalid payment response.');
+        }
 
         return new Continuation(
-            decision: Decision::Pending,
+            status: TransactionStatus::Pending,
             response: $response,
         );
     }

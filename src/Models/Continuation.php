@@ -3,7 +3,7 @@
 namespace PHPinnacle\Minos\Models;
 
 use DateTimeInterface;
-use PHPinnacle\Minos\Enums\Decision;
+use PHPinnacle\Minos\Enums\TransactionStatus;
 
 class Continuation
 {
@@ -12,7 +12,7 @@ class Continuation
      * @param array<string, mixed> $metadata
      */
     public function __construct(
-        public Decision $decision,
+        public TransactionStatus $status,
         public ?string $externalId = null,
         public ?DateTimeInterface $expiresAt = null,
         public array $response = [],
@@ -24,7 +24,7 @@ class Continuation
      */
     public static function success(?string $id = null, array $metadata = []): self
     {
-        return new self(Decision::Success, $id, metadata: $metadata);
+        return new self(TransactionStatus::Success, $id, metadata: $metadata);
     }
 
     /**
@@ -32,7 +32,7 @@ class Continuation
      */
     public static function failure(?string $id = null, array $metadata = []): self
     {
-        return new self(Decision::Failure, $id, metadata: $metadata);
+        return new self(TransactionStatus::Failure, $id, metadata: $metadata);
     }
 
     /**
@@ -40,6 +40,6 @@ class Continuation
      */
     public static function pending(?string $id = null, array $metadata = []): self
     {
-        return new self(Decision::Pending, $id, metadata: $metadata);
+        return new self(TransactionStatus::Pending, $id, metadata: $metadata);
     }
 }

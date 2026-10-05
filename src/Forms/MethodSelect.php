@@ -26,7 +26,7 @@ class MethodSelect extends Select
             ->placeholder(__('phpinnacle-minos::forms.payment_method.placeholder'))
             ->prefixIcon(MethodResource::getNavigationIcon())
             ->options(fn () => PaymentMethod::list($this->online))
-            ->default(fn () => $this->withDefault ? PaymentMethod::default()?->id : null)
+            ->default(fn () => $this->withDefault ? PaymentMethod::default($this->online)?->id : null)
             ->required();
     }
 

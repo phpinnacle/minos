@@ -9,10 +9,10 @@ use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Support\Colors\Color;
 use Laravel\Cashier\Cashier;
+use LogicException;
 use PHPinnacle\Minos\Enums\Ability;
 use PHPinnacle\Minos\Models\Continuation;
 use PHPinnacle\Minos\Models\Intent;
-use PHPinnacle\Minos\Models\Notification;
 use Stripe\Exception\AuthenticationException;
 
 class Stripe extends Base
@@ -85,12 +85,7 @@ class Stripe extends Base
 
     public function intent(Intent $intent): Continuation
     {
-        return Continuation::pending();
-    }
-
-    public function handle(Notification $notification): Continuation
-    {
-        return Continuation::success();
+        throw new LogicException('The Stripe payment adapter has not been implemented.');
     }
 
     /** @return array<string, mixed> */

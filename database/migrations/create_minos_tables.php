@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -72,10 +73,49 @@ return new class extends Migration {
             $table->dateTime('expires_at');
             $table->timestamps();
         });
+
+        Schema::create('payment_transactions', function (Blueprint $table) {
+            $table->uuid('id')->primary();
+            $table
+                ->foreignIdFor(PaymentMethod::class, 'method_id')
+                ->constrained()
+                ->restrictOnDelete();
+            $table
+                ->foreignUuid('parent_id')
+                ->nullable()
+                ->constrained('payment_transactions')
+                ->noActionOnDelete();
+            $table->string('source_type');
+            $table->string('source_id');
+            $table->string('payer_type');
+            $table->string('payer_id');
+            $table->string('number');
+            $table->text('description');
+            $table->text('reason')->nullable();
+            $table->string('type');
+            $table->string('status')->default('pending');
+            $table->unsignedBigInteger('amount');
+            $table->char('currency', 3);
+            $table->string('external_id')->nullable();
+            $table->json('metadata')->default('{}');
+            $table->unsignedBigInteger('version')->default(0);
+            $table->dateTime('expires_at')->nullable();
+            $table->dateTime('processed_at')->nullable();
+            $table->timestamps();
+
+            $this->addTenancy($table);
+
+            $table->index(['method_id', 'external_id']);
+            $table->index(['payer_type', 'payer_id']);
+            $table->index(['source_type', 'source_id']);
+            $table->index(['parent_id', 'type', 'status']);
+        });
     }
 
     public function down(): void
     {
+        Schema::dropIfExists('payment_transactions');
+        Schema::dropIfExists('payment_cards');
         Schema::dropIfExists('payment_plans');
         Schema::dropIfExists('payment_methods');
     }
@@ -85,11 +125,12 @@ return new class extends Migration {
         return config('phpinnacle-minos.connection');
     }
 
-    private function addTenancy(Blueprint $table): bool
+    private function addTenancy(Blueprint $table): void
     {
+        /** @var array{model: class-string<Model>, default: int|string}|null $tenancy */
         $tenancy = config('phpinnacle-minos.tenancy');
 
-        if (($tenancy['model'] ?? null) !== null && class_exists($tenancy['model'])) {
+        if ($tenancy !== null) {
             $table
                 ->foreignIdFor($tenancy['model'], 'tenant_id')
                 ->after('id')
@@ -97,10 +138,6 @@ return new class extends Migration {
                 ->default($tenancy['default'])
                 ->constrained()
                 ->cascadeOnDelete();
-
-            return true;
         }
-
-        return false;
     }
 };

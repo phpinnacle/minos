@@ -5,8 +5,6 @@ namespace PHPinnacle\Minos\Payments;
 use Filament\Forms\Components\TextInput;
 use Filament\Support\Colors\Color;
 use PHPinnacle\Minos\Enums\Ability;
-use PHPinnacle\Minos\Models\Continuation;
-use PHPinnacle\Minos\Models\Intent;
 use PHPinnacle\Minos\Models\PaymentMethod;
 
 class Bank extends Base
@@ -69,10 +67,5 @@ class Bank extends Base
         return [
             Ability::Offline,
         ];
-    }
-
-    public function intent(Intent $intent): Continuation
-    {
-        return Continuation::success();
     }
 }

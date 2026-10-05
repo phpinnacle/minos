@@ -8,12 +8,12 @@ use Filament\Forms\Components\TextInput;
 use Filament\Schemas\Components\Group;
 use Filament\Support\Colors\Color;
 use PHPinnacle\Minos\Enums\Ability;
-use PHPinnacle\Minos\Enums\Decision;
 use PHPinnacle\Minos\Enums\EripNotification;
 use PHPinnacle\Minos\Models\Continuation;
 use PHPinnacle\Minos\Models\Intent;
 use PHPinnacle\Minos\Models\Notification;
 use PHPinnacle\Minos\Services\BePaid\EripClient;
+use PHPinnacle\Minos\Services\BePaid\TransactionResponse;
 
 class Erip extends Base
 {
@@ -97,17 +97,6 @@ class Erip extends Base
 
     public function handle(Notification $notification): Continuation
     {
-        $transaction = $notification->payload['transaction'] ?? [];
-        $decision = match ($transaction['status'] ?? null) {
-            'successful' => Decision::Success,
-            'failed' => Decision::Failure,
-            default => Decision::Pending,
-        };
-
-        return new Continuation(
-            decision: $decision,
-            externalId: $transaction['uid'] ?? null,
-            response: $notification->payload,
-        );
+        return TransactionResponse::parse($notification->payload)->continuation();
     }
 }

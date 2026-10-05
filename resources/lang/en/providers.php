@@ -66,7 +66,6 @@ return [
             'secret_key' => 'Secret Key',
             'test_mode' => 'Test Mode',
             'timeout' => 'Timeout',
-            'authorize' => 'Authorize',
         ],
     ],
     'erip' => [

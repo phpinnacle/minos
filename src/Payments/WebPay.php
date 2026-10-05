@@ -8,7 +8,7 @@ use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Components\Group;
 use Filament\Support\Colors\Color;
 use PHPinnacle\Minos\Enums\Ability;
-use PHPinnacle\Minos\Enums\Decision;
+use PHPinnacle\Minos\Enums\TransactionStatus;
 use PHPinnacle\Minos\Exceptions\PaymentDenied;
 use PHPinnacle\Minos\Models\Continuation;
 use PHPinnacle\Minos\Models\Intent;
@@ -118,18 +118,13 @@ class WebPay extends Base
         }
 
         $code = (int) $payload['payment_type'];
-        $success = in_array($code, [1, 4], strict: true);
-        $failure = in_array($code, [5, 7, 9, 11], strict: true);
-        $decision = Decision::Pending;
-
-        if ($success) {
-            $decision = Decision::Success;
-        } elseif ($failure) {
-            $decision = Decision::Failure;
-        }
 
         return new Continuation(
-            decision: $decision,
+            status: match ($code) {
+                1, 4 => TransactionStatus::Success,
+                5, 7, 9, 11 => TransactionStatus::Failure,
+                default => TransactionStatus::Pending,
+            },
             externalId: $payload['transaction_id'] ?? null,
             response: $payload,
             metadata: [

@@ -6,7 +6,6 @@ use DateTimeInterface;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\Http;
-use PHPinnacle\Minos\Enums\Decision;
 use PHPinnacle\Minos\Models\Continuation;
 use PHPinnacle\Minos\Models\Intent;
 
@@ -36,32 +35,26 @@ readonly class EripClient
     public function payment(Intent $intent): Continuation
     {
         $expires = $this->timeout > 0 ? Date::now()->addSeconds($this->timeout) : null;
-        $response = (array) Http::asJson()
+        $response = Http::asJson()
+            ->timeout(30)
             ->withBasicAuth($this->shopId, $this->privateKey)
             ->post(sprintf('%s/payments', self::BASE_URL), [
                 'request' => $this->payload($intent, $expires),
             ])
+            ->throw()
             ->json();
 
-        $decision = match ($response['transaction']['status'] ?? null) {
-            'successful' => Decision::Success,
-            'failed' => Decision::Failure,
-            default => Decision::Pending,
-        };
+        $result = TransactionResponse::parse($response);
+        $continuation = $result->continuation([
+            'qr_code' => $response['transaction']['erip']['qr_code'] ?? null,
+            'account' => $response['transaction']['erip']['account_number'] ?? null,
+            'instruction' => self::explode($response['transaction']['erip']['instruction'][0] ?? '', '->'),
+            'service' => $response['transaction']['erip']['service_no_erip'] ?? null,
+            'banks' => $response['transaction']['erip']['banks'] ?? [],
+        ]);
+        $continuation->expiresAt = $expires;
 
-        return new Continuation(
-            decision: $decision,
-            externalId: $response['transaction']['uid'] ?? null,
-            expiresAt: $expires,
-            response: $response,
-            metadata: [
-                'qr_code' => $response['transaction']['erip']['qr_code'] ?? null,
-                'account' => $response['transaction']['erip']['account_number'] ?? null,
-                'instruction' => self::explode($response['transaction']['erip']['instruction'][0] ?? '', '->'),
-                'service' => $response['transaction']['erip']['service_no_erip'] ?? null,
-                'banks' => $response['transaction']['erip']['banks'] ?? [],
-            ],
-        );
+        return $continuation;
     }
 
     /**
@@ -105,7 +98,7 @@ readonly class EripClient
                 'service_no' => $settings['service'] ?? null,
                 'service_info' => self::explode($intent->description),
                 'receipt' => self::explode($settings['receipt'] ?? ''),
-                'instruction' => self::explode($settings['instruction'] ?? ''),
+                'instruction' => self::explode($settings['instructions'] ?? ''),
             ],
             'additional_data' => [
                 'notifications' => Arr::onlyValues($settings['notifications'] ?? [], ['sms', 'email']),

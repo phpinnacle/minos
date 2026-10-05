@@ -28,7 +28,7 @@ readonly class Intent
 
     public function total(): Money
     {
-        $total = Money::sum(...array_map(fn (IntentLine $line) => $line->price->mul($line->qty), $this->lines));
+        $total = Money::sum(...array_map(fn (IntentLine $line) => $line->total(), $this->lines));
 
         foreach ($this->adjustments as $adjustment) {
             $total = $adjustment->apply($total);

@@ -2,7 +2,6 @@
 
 namespace PHPinnacle\Minos\Payments;
 
-use Carbon\CarbonImmutable;
 use DateTimeImmutable;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
@@ -10,19 +9,45 @@ use Filament\Schemas\Components\Component;
 use Filament\Schemas\Components\Group;
 use Filament\Support\Colors\Color;
 use OpenApi\Attributes as OA;
+use PHPinnacle\Minos\Contracts\AuthorizationGateway;
+use PHPinnacle\Minos\Contracts\QueuedGateway;
+use PHPinnacle\Minos\Contracts\RefundGateway;
 use PHPinnacle\Minos\Enums\Ability;
-use PHPinnacle\Minos\Enums\Decision;
+use PHPinnacle\Minos\Enums\TransactionStatus;
 use PHPinnacle\Minos\Instruments\EncryptedCard;
 use PHPinnacle\Minos\Models\Continuation;
 use PHPinnacle\Minos\Models\CreditCard;
+use PHPinnacle\Minos\Models\GatewayRequest;
 use PHPinnacle\Minos\Models\Intent;
 use PHPinnacle\Minos\Models\Notification;
 use PHPinnacle\Minos\Models\Payer;
 use PHPinnacle\Minos\Models\PaymentMethod;
+use PHPinnacle\Minos\Models\Transaction;
 use PHPinnacle\Minos\Services\BePaid\CardClient;
+use PHPinnacle\Minos\Services\BePaid\TransactionResponse;
 
-class BePaid extends Base
+class BePaid extends Base implements AuthorizationGateway, QueuedGateway, RefundGateway
 {
+    public function prepare(Intent $intent): GatewayRequest
+    {
+        return $this->client($intent->method)->prepare($intent);
+    }
+
+    public function derive(Transaction $transaction): GatewayRequest
+    {
+        return $this->client($transaction->method)->derive($transaction);
+    }
+
+    public function execute(Transaction $transaction, array $payload): Continuation
+    {
+        return $this->client($transaction->method)->execute($transaction, $payload);
+    }
+
+    public function synchronize(Transaction $transaction): Continuation
+    {
+        return $this->client($transaction->method)->synchronize($transaction);
+    }
+
     public function key(): string
     {
         return 'bepaid';
@@ -58,6 +83,21 @@ class BePaid extends Base
         );
     }
 
+    public function capture(Transaction $transaction): Continuation
+    {
+        return $this->client($transaction->method)->capture($transaction);
+    }
+
+    public function void(Transaction $transaction): Continuation
+    {
+        return $this->client($transaction->method)->void($transaction);
+    }
+
+    public function refund(Transaction $transaction): Continuation
+    {
+        return $this->client($transaction->method)->refund($transaction);
+    }
+
     /** @return array<Component> */
     public function form(): array
     {
@@ -80,10 +120,6 @@ class BePaid extends Base
                                 ->maxValue(60 * 60 * 24)
                                 ->minValue(0)
                                 ->default(0),
-                            Toggle::make('authorize')
-                                ->label(__('phpinnacle-minos::providers.bepaid.fields.authorize'))
-                                ->inline(false)
-                                ->default(false),
                             Toggle::make('test_mode')
                                 ->label(__('phpinnacle-minos::providers.bepaid.fields.test_mode'))
                                 ->inline(false)
@@ -114,12 +150,13 @@ class BePaid extends Base
         return [
             Ability::Online,
             Ability::Recurring,
+            Ability::Refund,
         ];
     }
 
     public function schema(PaymentMethod $method, Payer $payer): OA\Schema
     {
-        $tokens = CreditCard::list($method->id, $payer);
+        $tokens = CreditCard::list($method, $payer);
         $requiredCardFields = [
             'holder',
             'number',
@@ -197,22 +234,32 @@ class BePaid extends Base
 
     public function intent(Intent $intent): Continuation
     {
-        $client = CardClient::create($intent->method->settings);
-        $authorize = (bool) filter_var($intent->method->settings['authorize'] ?? false, FILTER_VALIDATE_BOOLEAN);
-        $continuation = $authorize ? $client->authorize($intent) : $client->payment($intent);
+        return $this->completeIntent($intent, $this->client($intent->method)->payment($intent));
+    }
 
-        // No 3D Secure pass
-        if ($continuation->decision === Decision::Success) {
-            $persist = $intent->instrument instanceof EncryptedCard && $intent->instrument->persist;
+    public function authorize(Intent $intent): Continuation
+    {
+        return $this->completeIntent($intent, $this->client($intent->method)->authorize($intent));
+    }
 
-            if ($persist) {
-                $cardData = $continuation->response['transaction']['credit_card'] ?? [];
-                $creditCard = $this->persistCard($intent->method, $intent->payer, $cardData);
+    private function completeIntent(Intent $intent, Continuation $continuation): Continuation
+    {
+        if (
+            $continuation->status !== TransactionStatus::Success
+            || !$intent->instrument instanceof EncryptedCard
+            || !$intent->instrument->persist
+        ) {
+            return $continuation;
+        }
 
-                if ($creditCard !== null) {
-                    $continuation->metadata['payment_card_id'] = $creditCard->getKey();
-                }
-            }
+        $creditCard = $this->persistCard(
+            $intent->method,
+            $intent->payer,
+            $continuation->response['transaction']['credit_card'] ?? null,
+        );
+
+        if ($creditCard !== null) {
+            $continuation->metadata['payment_card_id'] = $creditCard->getKey();
         }
 
         return $continuation;
@@ -220,62 +267,39 @@ class BePaid extends Base
 
     public function handle(Notification $notification): Continuation
     {
-        $transaction = $notification->payload['transaction'] ?? [];
+        $response = TransactionResponse::parse($notification->payload);
+        $transaction = $response->payload['transaction'];
         $creditCard = null;
-        $decision = match ($transaction['status'] ?? null) {
-            'successful' => Decision::Success,
-            'failed' => Decision::Failure,
-            default => Decision::Pending,
-        };
 
-        if ($decision === Decision::Success) {
+        if ($response->status() === TransactionStatus::Success) {
             $persist = (bool) filter_var($notification->payload['persist'] ?? false, FILTER_VALIDATE_BOOLEAN);
 
             if ($persist) {
-                $cardData = $transaction['credit_card'] ?? [];
-                $creditCard = $this->persistCard($notification->method, $notification->payer, $cardData);
+                $creditCard = $this->persistCard(
+                    $notification->method,
+                    $notification->payer,
+                    $transaction['credit_card'] ?? null,
+                );
             }
         }
 
-        return new Continuation(
-            decision: $decision,
-            externalId: $transaction['uid'] ?? null,
-            response: $notification->payload,
-            metadata: [
-                'redirect' => $transaction['redirect_url'] ?? null,
-                'receipt' => $transaction['receipt_url'] ?? null,
-                'message' => $transaction['message'] ?? null,
-                'payment_card_id' => $creditCard?->getKey() ?? null,
-            ],
-        );
+        return $response->continuation([
+            'redirect' => $transaction['redirect_url'] ?? null,
+            'receipt' => $transaction['receipt_url'] ?? null,
+            'message' => $transaction['message'] ?? null,
+            'payment_card_id' => $creditCard?->getKey() ?? null,
+        ]);
     }
 
-    /** @param array<string, mixed> $cardData */
-    private function persistCard(PaymentMethod|string $method, Payer $payer, array $cardData): ?CreditCard
+    private function persistCard(PaymentMethod $method, Payer $payer, mixed $data): ?CreditCard
     {
-        if (($cardData['token'] ?? null) === null) {
-            return null;
-        }
+        $details = TransactionResponse::card($data);
 
-        $methodId = $method instanceof PaymentMethod ? $method->getKey() : $method;
-        $creditCard = CreditCard::query()->firstOrNew([
-            'method_id' => $methodId,
-            'customer_type' => $payer->type,
-            'customer_id' => $payer->id,
-            'token' => $cardData['token'],
-        ]);
-        $creditCard->product = $cardData['product'];
-        $creditCard->country = $cardData['issuer_country'];
-        $creditCard->brand = $cardData['brand'];
-        $creditCard->subbrand = $cardData['sub_brand'] ?? 'regular';
-        $creditCard->bin = $cardData['bin_8'];
-        $creditCard->mask = $cardData['last_4'];
-        $creditCard->expires_at = CarbonImmutable::create(
-            year: (int) $cardData['exp_year'],
-            month: (int) $cardData['exp_month'],
-        )->lastOfMonth();
-        $creditCard->save();
+        return $details === null ? null : CreditCard::store($method, $payer, $details);
+    }
 
-        return $creditCard;
+    private function client(PaymentMethod $method): CardClient
+    {
+        return CardClient::create($method->settings);
     }
 }
