@@ -15,6 +15,7 @@ use PHPinnacle\Minos\Enums\TransactionStatus;
 use PHPinnacle\Minos\Enums\TransactionType;
 use PHPinnacle\Minos\Events\TransactionCreated;
 use PHPinnacle\Minos\Events\TransactionStatusChanged;
+use PHPinnacle\Minos\Events\TransactionUpdated;
 use PHPinnacle\Minos\Exceptions\StaleTransaction;
 use PHPinnacle\Money\Money;
 
@@ -71,6 +72,10 @@ class Transaction extends Model
         });
 
         static::updated(function (self $transaction) {
+            if (array_diff(array_keys($transaction->getChanges()), ['version', 'updated_at']) !== []) {
+                TransactionUpdated::dispatch($transaction);
+            }
+
             if (!$transaction->wasChanged('status')) {
                 return;
             }

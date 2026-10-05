@@ -227,7 +227,7 @@ The low-level `Transaction::synchronize($continuation, $expectedVersion)` can co
 
 `balanceImpact()` instead returns one operation's effect on funds received: a successful payment or capture is positive, a successful refund is negative, and authorizations, voids and unfinished or failed operations contribute zero. It uses the operation's `type` and `status`: refunding a capture does not erase the original capture's positive effect. Summing operation effects through `Transaction::forSource($source)` counts each effect once; do not also add root aggregate totals. The application owns payment allocation, installments, order status changes and business events.
 
-Minos dispatches `PHPinnacle\Minos\Events\TransactionCreated` when a payment or child operation is saved and `PHPinnacle\Minos\Events\TransactionStatusChanged` when its status changes. Both events implement Laravel's `ShouldDispatchAfterCommit`: listeners run after the owning database transaction commits, and a rollback discards the events. `TransactionCreated` carries `$transaction`; `TransactionStatusChanged` carries `$transaction`, `$previousStatus`, and `$status` as `TransactionStatus` values. Metadata-only changes, root version updates, and repeated results with an unchanged status do not emit a status event. Register ordinary Laravel listeners, for example:
+Minos dispatches `PHPinnacle\Minos\Events\TransactionCreated` when a payment or child operation is saved, `PHPinnacle\Minos\Events\TransactionUpdated` when an operation's persisted data changes, and `PHPinnacle\Minos\Events\TransactionStatusChanged` when its status changes. All three events implement Laravel's `ShouldDispatchAfterCommit`: listeners run after the owning database transaction commits, and a rollback discards the events. `TransactionCreated` and `TransactionUpdated` carry `$transaction`; `TransactionStatusChanged` carries `$transaction`, `$previousStatus`, and `$status` as `TransactionStatus` values. A pending provider response that changes metadata or the external ID emits `TransactionUpdated` without a status event. Root version and timestamp-only updates, and repeated results with no changes, emit neither update nor status events. Register ordinary Laravel listeners, for example:
 
 ```php
 use Illuminate\Support\Facades\Event;
@@ -237,6 +237,38 @@ Event::listen(TransactionStatusChanged::class, ReconcilePayment::class);
 ```
 
 In the listener, reconcile the allocation with the payment root's current `received()` total. Replace the recorded contribution idempotently instead of adding the whole amount again; reconciliation can reverse an earlier result. A refund changes the balance without changing the root's operation status, so handle status events from child operations as well as roots. Scope transaction lookups through an authorized source or payment method, including the application's tenant boundary; this table does not install a global tenant scope or infer a current tenant.
+
+### Optional WebSocket updates
+
+Register Minos's broadcast listener in the application to publish committed creation and update events. The application supplies its Laravel broadcaster and queue; Minos does not require a specific WebSocket server.
+
+```php
+use Illuminate\Support\Facades\Event;
+use PHPinnacle\Minos\Events\TransactionCreated;
+use PHPinnacle\Minos\Events\TransactionUpdated;
+use PHPinnacle\Minos\Listeners\BroadcastTransaction;
+
+Event::listen([TransactionCreated::class, TransactionUpdated::class], BroadcastTransaction::class);
+```
+
+Each message goes to the private `minos.transactions.{rootId}` channel as `minos.transaction.changed`. It contains `root` (ID, number, amount, currency, type, status, version, confirmed and available amounts) and `operation` (identity, type, status, amount, currency, payment method name, dates, available amounts, checkout redirect, receipt and message, and ERIP QR code, account, instruction and service). Amounts are integer minor units. The payload is assembled from a consistent payment state after commit, so the client can update its local payment state directly. `operation` contains only explicitly selected metadata fields; raw provider responses, card details, payer and source references, and arbitrary metadata are excluded. `TransactionStatusChanged` remains a separate event for business listeners and does not need a second broadcast listener.
+
+Authorize subscriptions in the application's `routes/channels.php` using the same tenant and transaction access rules as its HTTP interface. For example, an application policy that grants `view` to both permitted operators and authenticated payers can be used for the channel:
+
+```php
+use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Support\Facades\Broadcast;
+use Illuminate\Support\Facades\Gate;
+use PHPinnacle\Minos\Models\Transaction;
+
+Broadcast::channel('minos.transactions.{rootId}', function (Authenticatable $user, string $rootId): bool {
+    $root = Transaction::query()->whereNull('parent_id')->find($rootId);
+
+    return $root !== null && Gate::forUser($user)->allows('view', $root);
+});
+```
+
+Subscribe with `Echo.private('minos.transactions.' + rootId).listen('.minos.transaction.changed', handler)`. The initial page state still comes from the application's authorized read path; subsequent messages supply the updated operation and root balance without a request per message. Compare `root.version` when applying messages that may arrive out of order. Refresh once after reconnecting to recover any missed messages. Broadcasting runs through Laravel's queue and failures are reported without changing the payment outcome.
 
 ### Laravel database queue as the transactional outbox
 

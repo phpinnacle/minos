@@ -11,6 +11,7 @@ use PHPinnacle\Minos\Enums\TransactionStatus;
 use PHPinnacle\Minos\Enums\TransactionType;
 use PHPinnacle\Minos\Events\TransactionCreated;
 use PHPinnacle\Minos\Events\TransactionStatusChanged;
+use PHPinnacle\Minos\Events\TransactionUpdated;
 use PHPinnacle\Minos\Models\Adjustment;
 use PHPinnacle\Minos\Models\Continuation;
 use PHPinnacle\Minos\Models\Intent;
@@ -559,14 +560,52 @@ it('emits creation and status transition events without version or duplicate noi
         ]);
 });
 
+it('emits an update when a pending provider response changes checkout details', function () {
+    $updated = [];
+    $statuses = [];
+    Event::listen(TransactionUpdated::class, function (TransactionUpdated $event) use (&$updated) {
+        $updated[] = [$event->transaction->id, $event->transaction->metadata];
+    });
+    Event::listen(TransactionStatusChanged::class, function (TransactionStatusChanged $event) use (&$statuses) {
+        $statuses[] = $event->status;
+    });
+
+    $payment = Transaction::payment(minos_transaction_intent());
+    $pending = Continuation::pending('remote-payment', ['redirect' => 'https://checkout.example.test/1']);
+    $payment->handle($pending);
+    $payment->handle($pending);
+    $redirect = Continuation::pending(metadata: ['redirect' => 'https://checkout.example.test/2']);
+    $payment->handle($redirect);
+    $payment->handle($redirect);
+
+    expect($payment->status)
+        ->toBe(TransactionStatus::Pending)
+        ->and($updated)
+        ->toBe([
+            [$payment->id, ['redirect' => 'https://checkout.example.test/1']],
+            [$payment->id, ['redirect' => 'https://checkout.example.test/2']],
+        ])
+        ->and($statuses)
+        ->toBe([]);
+
+    $payment->handle(Continuation::success('remote-payment'));
+    $payment->refund('REF-EVENT', new Money(100, 'USD'), 'Return');
+
+    expect($updated)->toHaveCount(3)->and($statuses)->toBe([TransactionStatus::Success]);
+});
+
 it('delivers transaction events after commit and discards rolled-back events', function () {
     $created = [];
     $changed = [];
+    $updated = [];
     Event::listen(TransactionCreated::class, function (TransactionCreated $event) use (&$created) {
         $created[] = $event->transaction->id;
     });
     Event::listen(TransactionStatusChanged::class, function (TransactionStatusChanged $event) use (&$changed) {
         $changed[] = $event->transaction->id;
+    });
+    Event::listen(TransactionUpdated::class, function (TransactionUpdated $event) use (&$updated) {
+        $updated[] = $event->transaction->id;
     });
 
     $method = new Cash()->define();
@@ -574,16 +613,21 @@ it('delivers transaction events after commit and discards rolled-back events', f
 
     $payment = $method
         ->getConnection()
-        ->transaction(function () use ($method, &$created, &$changed) {
+        ->transaction(function () use ($method, &$created, &$changed, &$updated) {
             $payment = Transaction::payment(minos_transaction_intent($method));
             $payment->handle(Continuation::success());
 
-            expect($created)->toBe([])->and($changed)->toBe([]);
+            expect($created)->toBe([])->and($changed)->toBe([])->and($updated)->toBe([]);
 
             return $payment;
         });
 
-    expect($created)->toBe([$payment->id])->and($changed)->toBe([$payment->id]);
+    expect($created)
+        ->toBe([$payment->id])
+        ->and($changed)
+        ->toBe([$payment->id])
+        ->and($updated)
+        ->toBe([$payment->id]);
 
     expect(fn () => $method
         ->getConnection()
@@ -593,5 +637,10 @@ it('delivers transaction events after commit and discards rolled-back events', f
             throw new RuntimeException('Rollback event test');
         }))->toThrow(RuntimeException::class, 'Rollback event test');
 
-    expect($created)->toBe([$payment->id])->and($changed)->toBe([$payment->id]);
+    expect($created)
+        ->toBe([$payment->id])
+        ->and($changed)
+        ->toBe([$payment->id])
+        ->and($updated)
+        ->toBe([$payment->id]);
 });
