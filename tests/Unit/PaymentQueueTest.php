@@ -29,7 +29,6 @@ use PHPinnacle\Minos\Models\Transaction;
 use PHPinnacle\Minos\Payments\Bank;
 use PHPinnacle\Minos\Payments\BePaid;
 use PHPinnacle\Minos\Payments\Cash;
-use PHPinnacle\Minos\Payments\Stripe;
 use PHPinnacle\Minos\Services\PaymentManager;
 use PHPinnacle\Minos\Services\ProviderRegistry;
 use PHPinnacle\Money\Money;
@@ -424,10 +423,10 @@ it('rejects a saved card belonging to another payer', function () {
     expect(Transaction::query()->count())->toBe(0)->and(DB::connection('minos')->table('jobs')->count())->toBe(0);
 });
 
-it('keeps manual payments pending and rejects unsupported online adapters atomically', function () {
+it('keeps manual payments pending', function () {
     $original = minos_queue_intent();
 
-    foreach ([new Cash, new Bank, new Stripe] as $gateway) {
+    foreach ([new Cash, new Bank] as $gateway) {
         $method = $gateway->define(['name' => 'Bank transfer', 'account' => 'account']);
         $method->save();
         $intent = new Intent(
@@ -441,14 +440,10 @@ it('keeps manual payments pending and rejects unsupported online adapters atomic
             $original->lines,
         );
 
-        if ($gateway instanceof Stripe) {
-            expect(fn () => app(PaymentManager::class)->payment($intent))->toThrow(LogicException::class);
-        } else {
-            expect($gateway->intent($intent)->status)
-                ->toBe(TransactionStatus::Pending)
-                ->and(app(PaymentManager::class)->payment($intent)->status)
-                ->toBe(TransactionStatus::Pending);
-        }
+        expect($gateway->intent($intent)->status)
+            ->toBe(TransactionStatus::Pending)
+            ->and(app(PaymentManager::class)->payment($intent)->status)
+            ->toBe(TransactionStatus::Pending);
 
         expect(fn () => $gateway->handle(new Notification('event', 'order', $method, $original->payer, [])))
             ->toThrow(LogicException::class);

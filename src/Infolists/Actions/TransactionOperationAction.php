@@ -12,6 +12,7 @@ use PHPinnacle\Minos\Enums\TransactionType;
 use PHPinnacle\Minos\Infolists\TransactionHistoryEntry;
 use PHPinnacle\Minos\Models\Continuation;
 use PHPinnacle\Minos\Models\Transaction;
+use PHPinnacle\Minos\Payments\Stripe;
 use PHPinnacle\Minos\Services\PaymentManager;
 use PHPinnacle\Minos\Services\ProviderRegistry;
 use PHPinnacle\Money\Forms\MoneyInput;
@@ -105,13 +106,21 @@ abstract class TransactionOperationAction extends Action
         $available = static::operation() === TransactionType::REFUND
             ? $transaction->refundable()
             : $transaction->capturable();
-        $fields = [
-            MoneyInput::make('amount')
-                ->currencies([$transaction->currency])
-                ->default($available)
-                ->lesser($available)
-                ->required(),
-        ];
+        $amount = MoneyInput::make('amount')
+            ->currencies([$transaction->currency])
+            ->default($available)
+            ->required();
+
+        if (
+            in_array(static::operation(), [TransactionType::CAPTURE, TransactionType::VOID], true)
+            && $providers->get($transaction->method->provider) instanceof Stripe
+        ) {
+            $amount->equal($available)->readOnly();
+        } else {
+            $amount->lesser($available);
+        }
+
+        $fields = [$amount];
 
         if (static::operation() === TransactionType::REFUND) {
             $fields[] = TextInput::make('reason')

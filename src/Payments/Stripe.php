@@ -9,13 +9,20 @@ use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Support\Colors\Color;
 use Laravel\Cashier\Cashier;
-use LogicException;
+use PHPinnacle\Minos\Contracts\AuthorizationGateway;
+use PHPinnacle\Minos\Contracts\QueuedGateway;
+use PHPinnacle\Minos\Contracts\RefundGateway;
 use PHPinnacle\Minos\Enums\Ability;
+use PHPinnacle\Minos\Enums\TransactionType;
 use PHPinnacle\Minos\Models\Continuation;
+use PHPinnacle\Minos\Models\GatewayRequest;
 use PHPinnacle\Minos\Models\Intent;
+use PHPinnacle\Minos\Models\PaymentMethod;
+use PHPinnacle\Minos\Models\Transaction;
+use PHPinnacle\Minos\Services\Stripe\PaymentClient;
 use Stripe\Exception\AuthenticationException;
 
-class Stripe extends Base
+class Stripe extends Base implements AuthorizationGateway, QueuedGateway, RefundGateway
 {
     public function key(): string
     {
@@ -79,13 +86,81 @@ class Stripe extends Base
     {
         return [
             Ability::Online,
-            Ability::Recurring,
+            Ability::Refund,
         ];
     }
 
     public function intent(Intent $intent): Continuation
     {
-        throw new LogicException('The Stripe payment adapter has not been implemented.');
+        $client = $this->client($intent->method);
+        $request = $client->prepare($intent);
+
+        return $client->payment($request->payload, $intent->id);
+    }
+
+    public function refund(Transaction $transaction): Continuation
+    {
+        $client = $this->client($transaction->method);
+        $request = $client->derive($transaction);
+
+        return $client->refund($request->payload, $transaction->id);
+    }
+
+    public function authorize(Intent $intent): Continuation
+    {
+        $client = $this->client($intent->method);
+        $request = $client->prepare($intent);
+
+        return $client->authorize($request->payload, $intent->id);
+    }
+
+    public function capture(Transaction $transaction): Continuation
+    {
+        $client = $this->client($transaction->method);
+        $request = $client->derive($transaction);
+
+        return $client->capture($request->payload, $transaction->id);
+    }
+
+    public function void(Transaction $transaction): Continuation
+    {
+        $client = $this->client($transaction->method);
+        $request = $client->derive($transaction);
+
+        return $client->void($request->payload, $transaction->id);
+    }
+
+    public function prepare(Intent $intent): GatewayRequest
+    {
+        return $this->client($intent->method)->prepare($intent);
+    }
+
+    public function derive(Transaction $transaction): GatewayRequest
+    {
+        return $this->client($transaction->method)->derive($transaction);
+    }
+
+    public function execute(Transaction $transaction, array $payload): Continuation
+    {
+        $client = $this->client($transaction->method);
+
+        return match ($transaction->type) {
+            TransactionType::PAYMENT => $client->payment($payload, $transaction->id),
+            TransactionType::AUTHORIZE => $client->authorize($payload, $transaction->id),
+            TransactionType::CAPTURE => $client->capture($payload, $transaction->id),
+            TransactionType::VOID => $client->void($payload, $transaction->id),
+            TransactionType::REFUND => $client->refund($payload, $transaction->id),
+        };
+    }
+
+    public function synchronize(Transaction $transaction): Continuation
+    {
+        return $this->client($transaction->method)->synchronize($transaction);
+    }
+
+    private function client(PaymentMethod $method): PaymentClient
+    {
+        return PaymentClient::create($method->settings);
     }
 
     /** @return array<string, mixed> */
