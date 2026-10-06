@@ -52,6 +52,48 @@ readonly class TransactionResponse
         );
     }
 
+    public function cardContinuation(): Continuation
+    {
+        $transaction = $this->payload['transaction'];
+
+        return $this->continuation(array_filter([
+            'code' => $transaction['code'] ?? null,
+            'receipt' => $transaction['receipt_url'] ?? null,
+            'redirect' => $transaction['redirect_url'] ?? null,
+            'message' => $this->payload['response']['message'] ?? null,
+            'friendly_message' => $transaction['friendly_message'] ?? null,
+            'custom_fields' => $transaction['custom_fields'] ?? null,
+        ]));
+    }
+
+    public function notificationContinuation(): Continuation
+    {
+        $transaction = $this->payload['transaction'];
+
+        return $this->continuation([
+            'redirect' => $transaction['redirect_url'] ?? null,
+            'receipt' => $transaction['receipt_url'] ?? null,
+            'message' => $transaction['message'] ?? null,
+            'payment_card_id' => null,
+        ]);
+    }
+
+    public function eripContinuation(): Continuation
+    {
+        $erip = $this->payload['transaction']['erip'] ?? [];
+
+        return $this->continuation([
+            'qr_code' => $erip['qr_code'] ?? null,
+            'account' => $erip['account_number'] ?? null,
+            'instruction' => array_values(array_filter(
+                array_map(trim(...), explode('->', $erip['instruction'][0] ?? '')),
+                fn (string $instruction) => $instruction !== '',
+            )),
+            'service' => $erip['service_no_erip'] ?? null,
+            'banks' => $erip['banks'] ?? [],
+        ]);
+    }
+
     public static function card(mixed $card): ?CardDetails
     {
         if ($card === null || is_array($card) && ($card['token'] ?? null) === null) {

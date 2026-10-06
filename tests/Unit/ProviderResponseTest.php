@@ -15,9 +15,11 @@ use PHPinnacle\Minos\Models\IntentLine;
 use PHPinnacle\Minos\Models\Notification;
 use PHPinnacle\Minos\Models\Payer;
 use PHPinnacle\Minos\Models\Source;
+use PHPinnacle\Minos\Models\Transaction;
 use PHPinnacle\Minos\Payments\BePaid;
 use PHPinnacle\Minos\Payments\Erip;
 use PHPinnacle\Minos\Payments\WebPay;
+use PHPinnacle\Minos\Services\PaymentManager;
 use PHPinnacle\Minos\Services\WebPay\RequestSigner;
 use PHPinnacle\Money\Money;
 use Tests\TestCase;
@@ -176,6 +178,48 @@ it('preserves ERIP instructions, checkout metadata and request expiry', function
     );
 });
 
+it('preserves the distinct card checkout and notification metadata', function () {
+    $provider = new BePaid;
+    $intent = minos_provider_intent($provider);
+    $payload = [
+        'transaction' => [
+            'uid' => 'remote-payment',
+            'status' => 'pending',
+            'code' => '0',
+            'redirect_url' => 'https://checkout.example.test',
+            'receipt_url' => 'https://receipt.example.test',
+            'message' => 'Notification message',
+            'friendly_message' => 'Continue checkout',
+            'custom_fields' => ['order' => 'PAY-1'],
+        ],
+        'response' => ['message' => 'Checkout message'],
+    ];
+    Http::fake(['*' => Http::response($payload)]);
+
+    $checkout = $provider->intent($intent);
+    $notification = $provider->handle(new Notification('1', '1', $intent->method, $intent->payer, $payload));
+
+    expect($checkout->metadata)
+        ->toBe([
+            'receipt' => 'https://receipt.example.test',
+            'redirect' => 'https://checkout.example.test',
+            'message' => 'Checkout message',
+            'friendly_message' => 'Continue checkout',
+            'custom_fields' => ['order' => 'PAY-1'],
+        ])
+        ->and($notification->metadata)
+        ->toBe([
+            'redirect' => 'https://checkout.example.test',
+            'receipt' => 'https://receipt.example.test',
+            'message' => 'Notification message',
+            'payment_card_id' => null,
+        ])
+        ->and($checkout->response)
+        ->toBe($payload)
+        ->and($notification->response)
+        ->toBe($payload);
+});
+
 it('reuses saved cards across immediate and callback success with a full expiry day', function () {
     Date::setTestNow('2027-01-31 12:30:00 UTC');
 
@@ -310,4 +354,95 @@ it('rejects invalid JSON from WebPay instead of returning a pending result', fun
     $intent = minos_provider_intent($provider);
     Http::fake(['*' => Http::response('invalid')]);
     expect(fn () => $provider->intent($intent))->toThrow(UnexpectedValueException::class);
+});
+
+it('persists synchronous payment results before returning to checkout', function (
+    string $providerClass,
+    string $endpoint,
+    string $status,
+    TransactionStatus $expectedStatus,
+) {
+    $intent = minos_provider_intent(new $providerClass);
+    Http::fake([
+        $endpoint => Http::response(['transaction' => ['uid' => 'remote-payment', 'status' => $status]]),
+    ]);
+
+    $transaction = app(PaymentManager::class)->paymentNow($intent);
+
+    expect($transaction->status)->toBe($expectedStatus);
+    $this->assertDatabaseHas('payment_transactions', [
+        'id' => $intent->id,
+        'external_id' => 'remote-payment',
+        'status' => $expectedStatus->value,
+        'amount' => 1000,
+        'currency' => 'USD',
+    ]);
+    Http::assertSentCount(1);
+})->with([
+    'BePaid' => [BePaid::class, 'https://gateway.bepaid.by/transactions/payments'],
+    'ERIP' => [Erip::class, 'https://api.bepaid.by/beyag/payments'],
+])->with([
+    'success' => ['successful', TransactionStatus::Success],
+    'pending' => ['incomplete', TransactionStatus::Pending],
+    'decline' => ['failed', TransactionStatus::Failure],
+]);
+
+it('returns persisted ERIP checkout instructions immediately', function () {
+    $this->travelTo(new DateTimeImmutable('2026-10-06 12:00:00'));
+    $intent = minos_provider_intent(new Erip);
+    Http::fake([
+        'https://api.bepaid.by/beyag/payments' => Http::response([
+            'transaction' => [
+                'uid' => 'erip-payment',
+                'status' => 'incomplete',
+                'erip' => [
+                    'qr_code' => 'erip-qr',
+                    'account_number' => 'ACCOUNT-1',
+                    'instruction' => ['Open banking->Pay the invoice'],
+                    'service_no_erip' => '12345',
+                ],
+            ],
+        ]),
+    ]);
+
+    $transaction = app(PaymentManager::class)->paymentNow($intent)->fresh();
+
+    expect($transaction->metadata)->toBe([
+        'qr_code' => 'erip-qr',
+        'account' => 'ACCOUNT-1',
+        'instruction' => ['Open banking', 'Pay the invoice'],
+        'service' => '12345',
+        'banks' => [],
+    ]);
+    expect($transaction->expires_at->toDateTimeString())->toBe('2026-10-06 12:10:00');
+    Http::assertSentCount(1);
+});
+
+it('starts a synchronous WebPay payment without a queue connection', function () {
+    $intent = minos_provider_intent(new WebPay);
+    Http::fake([
+        'https://payment.webpay.by/api/v1/payment' => Http::response(['url' => 'https://checkout.example.test/1']),
+    ]);
+
+    $transaction = app(PaymentManager::class)->paymentNow($intent);
+
+    expect($transaction->status)->toBe(TransactionStatus::Pending);
+    $this->assertDatabaseHas('payment_transactions', ['id' => $intent->id, 'status' => 'pending']);
+    Http::assertSentCount(1);
+});
+
+it('preserves the pending synchronous operation when its provider request fails', function () {
+    $intent = minos_provider_intent(new Erip);
+    Http::fake(['https://api.bepaid.by/beyag/payments' => Http::response(['error' => 'Unavailable'], 503)]);
+
+    expect(fn () => app(PaymentManager::class)->paymentNow($intent))->toThrow(RequestException::class);
+
+    $this->assertDatabaseHas('payment_transactions', [
+        'id' => $intent->id,
+        'status' => 'pending',
+        'external_id' => null,
+        'processed_at' => null,
+    ]);
+    expect(Transaction::query()->count())->toBe(1);
+    Http::assertSentCount(1);
 });

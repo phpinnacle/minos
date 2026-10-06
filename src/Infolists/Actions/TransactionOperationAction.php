@@ -10,7 +10,6 @@ use Illuminate\Support\Str;
 use LogicException;
 use PHPinnacle\Minos\Enums\TransactionType;
 use PHPinnacle\Minos\Infolists\TransactionHistoryEntry;
-use PHPinnacle\Minos\Models\Continuation;
 use PHPinnacle\Minos\Models\Transaction;
 use PHPinnacle\Minos\Payments\Stripe;
 use PHPinnacle\Minos\Services\PaymentManager;
@@ -160,7 +159,7 @@ abstract class TransactionOperationAction extends Action
                 ->getConnection()
                 ->transaction(function () use ($transaction, $number, $amount, $data, $payments) {
                     $created = $this->createOperation($transaction, $number, $amount, $data, $payments);
-                    $created->handle(Continuation::success());
+                    $created->confirmManual();
                 });
         }
 

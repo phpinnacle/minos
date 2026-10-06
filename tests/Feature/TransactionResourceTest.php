@@ -37,6 +37,7 @@ use PHPinnacle\Minos\Resources\Transactions\Pages\ListTransactions;
 use PHPinnacle\Minos\Resources\Transactions\Pages\ViewTransaction;
 use PHPinnacle\Minos\Resources\Transactions\RelationManagers\OperationsRelationManager;
 use PHPinnacle\Minos\Resources\Transactions\TransactionResource;
+use PHPinnacle\Minos\Services\ProviderRegistry;
 use PHPinnacle\Money\Money;
 use Tests\TestCase;
 
@@ -52,6 +53,11 @@ class MinosTransactionPolicy
     public function view(User $user, Transaction $transaction): bool
     {
         return $this->viewAny($user) && $transaction->number !== 'DENIED';
+    }
+
+    public function update(User $user, Transaction $transaction): bool
+    {
+        return $user->getAttribute('can_manage_transactions');
     }
 }
 
@@ -210,6 +216,7 @@ beforeEach(function () {
         'name' => 'Operator',
         'email' => 'operator@example.test',
         'can_view_transactions' => true,
+        'can_manage_transactions' => true,
     ]));
 });
 
@@ -451,6 +458,24 @@ it('records a manual refund from the history and rejects another transaction', f
         ->toBe(0)
         ->and($createdStatuses)
         ->toBe([TransactionStatus::Success]);
+});
+
+it('does not offer or execute operations without transaction update permission', function () {
+    $payment = minos_resource_payment('HISTORY-READ-ONLY')->handle(Continuation::success());
+    auth()->user()->setAttribute('can_manage_transactions', false);
+    $entry = TransactionHistoryEntry::make('history')
+        ->state([$payment])
+        ->manageWhen(true);
+    $refund = collect($entry->getDefaultActions())->first(fn ($action) => $action->getName() === 'refund');
+
+    expect($entry->canOperate($payment, 'refund', app(ProviderRegistry::class)))->toBeFalse();
+
+    $refund->evaluate($refund->getActionFunction(), [
+        'arguments' => ['transaction' => $payment->id],
+        'data' => ['amount' => new Money(200, 'USD'), 'reason' => 'Returned item'],
+    ]);
+
+    expect($payment->children()->count())->toBe(0);
 });
 
 it('cancels a pending manual transaction from the history', function () {

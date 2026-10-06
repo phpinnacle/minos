@@ -24,6 +24,7 @@ use PHPinnacle\Minos\Payments\Bank;
 use PHPinnacle\Minos\Payments\BePaid;
 use PHPinnacle\Minos\Payments\Card;
 use PHPinnacle\Minos\Payments\Cash;
+use PHPinnacle\Minos\Services\PaymentManager;
 use PHPinnacle\Money\Money;
 use Tests\TestCase;
 
@@ -643,4 +644,104 @@ it('delivers transaction events after commit and discards rolled-back events', f
         ->toBe([$payment->id])
         ->and($updated)
         ->toBe([$payment->id]);
+});
+
+it('keeps synchronous offline payments pending without contacting a provider', function (string $providerClass) {
+    $provider = new $providerClass;
+    $method = $provider->define(['name' => 'Bank transfer', 'account' => 'test']);
+    $method->save();
+
+    $transaction = app(PaymentManager::class)->paymentNow(minos_transaction_intent($method));
+
+    $this->assertDatabaseHas('payment_transactions', [
+        'id' => $transaction->id,
+        'status' => 'pending',
+        'processed_at' => null,
+    ]);
+    Http::assertNothingSent();
+})->with([Cash::class, Bank::class, Card::class]);
+
+it('confirms a manual payment with its date and metadata in a single transition', function () {
+    $transaction = Transaction::payment(minos_transaction_intent());
+    $transaction->metadata = ['reference' => 'BANK-1'];
+    $transaction->save();
+    $events = [];
+    $updates = [];
+    Event::listen(TransactionStatusChanged::class, function (TransactionStatusChanged $event) use (&$events) {
+        $events[] = [
+            $event->transaction->status,
+            $event->transaction->processed_at->format('Y-m-d H:i:s'),
+            $event->transaction->metadata,
+        ];
+    });
+    Event::listen(TransactionUpdated::class, function (TransactionUpdated $event) use (&$updates) {
+        $updates[] = $event->transaction->id;
+    });
+
+    $transaction->confirmManual(new DateTimeImmutable('2026-10-05 12:00:00'), ['receipt' => 'RECEIPT-1']);
+
+    $this->assertDatabaseHas('payment_transactions', [
+        'id' => $transaction->id,
+        'status' => 'success',
+        'processed_at' => '2026-10-05 12:00:00',
+        'version' => 1,
+    ]);
+    expect($transaction->fresh()->metadata)->toBe(['reference' => 'BANK-1', 'receipt' => 'RECEIPT-1']);
+    expect($events)->toBe([
+        [TransactionStatus::Success, '2026-10-05 12:00:00', ['reference' => 'BANK-1', 'receipt' => 'RECEIPT-1']],
+    ]);
+    expect($updates)->toBe([$transaction->id]);
+    Http::assertNothingSent();
+});
+
+it('confirms a manual refund with the current time and advances the payment version', function () {
+    $this->travelTo(new DateTimeImmutable('2026-10-06 12:00:00'));
+    $payment = Transaction::payment(minos_transaction_intent())->confirmManual();
+    $refund = $payment->refund('REF-MANUAL', new Money(250, 'USD'), 'Return');
+
+    $refund->confirmManual(metadata: ['receipt' => 'REFUND-1']);
+
+    $this->assertDatabaseHas('payment_transactions', [
+        'id' => $refund->id,
+        'status' => 'success',
+        'processed_at' => '2026-10-06 12:00:00',
+    ]);
+    expect($refund->fresh()->metadata)->toBe(['receipt' => 'REFUND-1']);
+    expect($payment->refresh()->version)->toBe(3);
+    expect($payment->refunded()->amount)->toBe(250);
+    Http::assertNothingSent();
+});
+
+it('does not change a terminal operation on manual confirmation', function (TransactionStatus $status) {
+    $transaction = Transaction::payment(minos_transaction_intent());
+    $transaction->handle(new Continuation($status, metadata: ['reference' => 'ORIGINAL']));
+    $original = $transaction->getAttributes();
+    Event::fake([TransactionStatusChanged::class, TransactionUpdated::class]);
+
+    $transaction->confirmManual(new DateTimeImmutable('2026-10-05 12:00:00'), ['reference' => 'REPLACEMENT']);
+
+    expect($transaction->fresh()->getAttributes())->toBe($original);
+    Event::assertNotDispatched(TransactionStatusChanged::class);
+    Event::assertNotDispatched(TransactionUpdated::class);
+})->with([TransactionStatus::Success, TransactionStatus::Failure, TransactionStatus::Cancel]);
+
+it('rejects manual confirmation of online operations', function () {
+    $method = new BePaid()->define(['shop_id' => 'shop', 'secret_key' => 'secret']);
+    $method->save();
+    $transaction = Transaction::payment(minos_transaction_intent($method));
+    Event::fake([TransactionStatusChanged::class, TransactionUpdated::class]);
+
+    expect(fn () => $transaction->confirmManual(new DateTimeImmutable('2026-10-05 12:00:00'), ['receipt' => 'MANUAL']))
+        ->toThrow(LogicException::class);
+
+    $this->assertDatabaseHas('payment_transactions', [
+        'id' => $transaction->id,
+        'status' => 'pending',
+        'processed_at' => null,
+        'version' => 0,
+    ]);
+    expect($transaction->fresh()->metadata)->toBe([]);
+    Event::assertNotDispatched(TransactionStatusChanged::class);
+    Event::assertNotDispatched(TransactionUpdated::class);
+    Http::assertNothingSent();
 });

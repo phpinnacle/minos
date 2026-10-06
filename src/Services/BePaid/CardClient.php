@@ -85,12 +85,25 @@ readonly class CardClient
 
     public function prepare(Intent $intent): GatewayRequest
     {
-        if (!$intent->instrument instanceof CardToken || $intent->instrument->verificationValue !== null) {
-            throw new InvalidArgumentException('Queued card payments require a saved token without CVC data.');
+        $instrument = $intent->instrument;
+
+        if (
+            !($instrument instanceof EncryptedCard
+            || $instrument instanceof CardToken)
+            || $instrument instanceof CardToken
+            && $instrument->verificationValue !== null
+        ) {
+            throw new InvalidArgumentException(
+                'Queued card payments require an encrypted card or a saved token without CVC data.',
+            );
         }
 
         // bePaid retains idempotency keys for 24 hours. Leave time for delivery and clock skew.
-        return new GatewayRequest($this->payload($intent), CarbonImmutable::now()->addHours(23));
+        return new GatewayRequest(
+            $this->payload($intent),
+            CarbonImmutable::now()->addHours(23),
+            $instrument instanceof EncryptedCard && $instrument->persist ? ['persist_card' => true] : [],
+        );
     }
 
     public function derive(Transaction $transaction): GatewayRequest
@@ -124,7 +137,7 @@ readonly class CardClient
             ->throw()
             ->json();
 
-        return $this->continuation($response);
+        return TransactionResponse::parse($response)->cardContinuation();
     }
 
     /**
@@ -258,26 +271,12 @@ readonly class CardClient
             ->throw()
             ->json();
 
-        $continuation = $this->continuation($response);
+        $continuation = TransactionResponse::parse($response)->cardContinuation();
         $continuation->expiresAt = ($payload['expired_at'] ?? null) !== null
             ? Date::parse($payload['expired_at'])
             : null;
 
         return $continuation;
-    }
-
-    private function continuation(mixed $response): Continuation
-    {
-        $result = TransactionResponse::parse($response);
-
-        return $result->continuation(array_filter([
-            'code' => $response['transaction']['code'] ?? null,
-            'receipt' => $response['transaction']['receipt_url'] ?? null,
-            'redirect' => $response['transaction']['redirect_url'] ?? null,
-            'message' => $response['response']['message'] ?? null,
-            'friendly_message' => $response['transaction']['friendly_message'] ?? null,
-            'custom_fields' => $response['transaction']['custom_fields'] ?? null,
-        ]));
     }
 
     private function http(): PendingRequest

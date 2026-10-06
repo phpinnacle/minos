@@ -20,6 +20,7 @@ class MinosServiceProvider extends PackageServiceProvider
             ->hasTranslations()
             ->hasViews()
             ->hasConfigFile()
+            ->hasRoutes('api')
             ->hasInstallCommand(function (InstallCommand $command) {
                 $command
                     ->publishConfigFile()

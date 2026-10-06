@@ -23,6 +23,19 @@ class PaymentManager
         private ProviderRegistry $providers,
     ) {}
 
+    public function paymentNow(Intent $intent): Transaction
+    {
+        $transaction = Transaction::payment($intent);
+
+        if (!$intent->method->isOnline()) {
+            return $transaction;
+        }
+
+        $gateway = $this->providers->get($intent->method->provider);
+
+        return $transaction->handle($gateway->intent($intent));
+    }
+
     public function payment(Intent $intent): Transaction
     {
         return $this->record($intent, fn () => Transaction::payment($intent));
@@ -97,6 +110,12 @@ class PaymentManager
                 }
 
                 $request = $origin instanceof Intent ? $gateway->prepare($origin) : $gateway->derive($transaction);
+
+                if ($request->metadata !== []) {
+                    $transaction->metadata = array_replace($transaction->metadata, $request->metadata);
+                    $transaction->save();
+                }
+
                 $this->dispatch($transaction, new ProcessPayment($transaction->id, $request));
 
                 return $transaction;

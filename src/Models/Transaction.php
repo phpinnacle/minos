@@ -3,6 +3,7 @@
 namespace PHPinnacle\Minos\Models;
 
 use Carbon\CarbonImmutable;
+use DateTimeInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
@@ -208,6 +209,21 @@ class Transaction extends Model
         return $this->amount->sub($reserved);
     }
 
+    /** @param array<string, mixed> $metadata */
+    public function confirmManual(?DateTimeInterface $processedAt = null, array $metadata = []): self
+    {
+        if ($this->method->isOnline()) {
+            throw new LogicException('Online operations must be confirmed by their payment provider.');
+        }
+
+        return $this->apply(
+            Continuation::success(metadata: $metadata),
+            synchronize: false,
+            expectedVersion: null,
+            processedAt: $processedAt,
+        );
+    }
+
     public function handle(Continuation $continuation, ?int $expectedVersion = null): self
     {
         return $this->apply($continuation, synchronize: false, expectedVersion: $expectedVersion);
@@ -218,11 +234,21 @@ class Transaction extends Model
         return $this->apply($continuation, synchronize: true, expectedVersion: $expectedVersion);
     }
 
-    private function apply(Continuation $continuation, bool $synchronize, ?int $expectedVersion): self
-    {
+    private function apply(
+        Continuation $continuation,
+        bool $synchronize,
+        ?int $expectedVersion,
+        ?DateTimeInterface $processedAt = null,
+    ): self {
         $rootId = $this->root()->id;
 
-        $this->getConnection()->transaction(function () use ($rootId, $continuation, $synchronize, $expectedVersion) {
+        $this->getConnection()->transaction(function () use (
+            $rootId,
+            $continuation,
+            $synchronize,
+            $expectedVersion,
+            $processedAt,
+        ) {
             $root = $this->newQuery()->lockForUpdate()->findOrFail($rootId);
             $transaction = $root->id === $this->id
                 ? $root
@@ -237,6 +263,10 @@ class Transaction extends Model
             }
 
             $transaction->applyContinuation($continuation);
+
+            if ($processedAt !== null) {
+                $transaction->processed_at = CarbonImmutable::instance($processedAt);
+            }
 
             if ($transaction->isDirty()) {
                 $root->version++;

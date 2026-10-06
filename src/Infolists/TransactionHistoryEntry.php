@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Gate;
 use PHPinnacle\Minos\Contracts\AuthorizationGateway;
 use PHPinnacle\Minos\Contracts\QueuedGateway;
 use PHPinnacle\Minos\Contracts\RefundGateway;
@@ -117,7 +118,11 @@ class TransactionHistoryEntry extends Entry
 
     public function canOperate(Transaction $transaction, string $operation, ProviderRegistry $providers): bool
     {
-        if (!$this->evaluate($this->manageWhen) || !TransactionResource::canView($transaction)) {
+        if (
+            !$this->evaluate($this->manageWhen)
+            || !TransactionResource::canView($transaction)
+            || !Gate::allows('update', $transaction)
+        ) {
             return false;
         }
 

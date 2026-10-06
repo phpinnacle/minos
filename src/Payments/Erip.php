@@ -7,16 +7,25 @@ use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Schemas\Components\Group;
 use Filament\Support\Colors\Color;
+use Illuminate\Http\Request;
+use PHPinnacle\Minos\Contracts\WebhookGateway;
 use PHPinnacle\Minos\Enums\Ability;
 use PHPinnacle\Minos\Enums\EripNotification;
 use PHPinnacle\Minos\Models\Continuation;
 use PHPinnacle\Minos\Models\Intent;
 use PHPinnacle\Minos\Models\Notification;
+use PHPinnacle\Minos\Models\Transaction;
 use PHPinnacle\Minos\Services\BePaid\EripClient;
 use PHPinnacle\Minos\Services\BePaid\TransactionResponse;
+use PHPinnacle\Minos\Services\BePaid\Webhook;
 
-class Erip extends Base
+class Erip extends Base implements WebhookGateway
 {
+    public function acceptsWebhook(Transaction $transaction, Request $request): bool
+    {
+        return Webhook::accepts($transaction, $request);
+    }
+
     public function key(): string
     {
         return 'erip';

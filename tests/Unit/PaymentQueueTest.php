@@ -13,8 +13,10 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
+use PHPinnacle\Minos\Contracts\Instrument;
 use PHPinnacle\Minos\Enums\TransactionStatus;
 use PHPinnacle\Minos\Exceptions\StaleTransaction;
+use PHPinnacle\Minos\Instruments\Bypass;
 use PHPinnacle\Minos\Instruments\CardToken;
 use PHPinnacle\Minos\Instruments\EncryptedCard;
 use PHPinnacle\Minos\Jobs\ProcessPayment;
@@ -49,7 +51,7 @@ class MinosQueueObserver implements ShouldHandleEventsAfterCommit
     }
 }
 
-function minos_queue_intent(): Intent
+function minos_queue_intent(?Instrument $instrument = null): Intent
 {
     $method = new BePaid()->define([
         'shop_id' => 'shop',
@@ -59,13 +61,17 @@ function minos_queue_intent(): Intent
     ]);
     $method->save();
     $payer = new Payer((string) Str::uuid(), 'customer');
-    $card = CreditCard::query()->create([
-        'method_id' => $method->id,
-        'customer_id' => $payer->id,
-        'customer_type' => $payer->type,
-        'token' => 'provider-card-token',
-        'expires_at' => now()->addYear(),
-    ]);
+
+    if ($instrument === null) {
+        $card = CreditCard::query()->create([
+            'method_id' => $method->id,
+            'customer_id' => $payer->id,
+            'customer_type' => $payer->type,
+            'token' => 'provider-card-token',
+            'expires_at' => now()->addYear(),
+        ]);
+        $instrument = new CardToken($card->id);
+    }
 
     return new Intent(
         id: (string) Str::uuid(),
@@ -74,9 +80,21 @@ function minos_queue_intent(): Intent
         method: $method,
         source: new Source('1', 'order'),
         payer: $payer,
-        instrument: new CardToken($card->id),
+        instrument: $instrument,
         lines: [new IntentLine('Item', 1, new Money(1000, 'USD'))],
     );
+}
+
+function minos_encrypted_queue_intent(bool $persist = false): Intent
+{
+    return minos_queue_intent(new EncryptedCard(
+        'encrypted-number',
+        'encrypted-holder',
+        'encrypted-month',
+        'encrypted-year',
+        'encrypted-cvc',
+        $persist,
+    ));
 }
 
 function minos_queued_payment(): ProcessPayment
@@ -166,6 +184,87 @@ it('executes an encrypted Laravel job after commit without a Filament panel', fu
     $job->handle(app(PaymentManager::class));
     Http::assertSentCount(1);
 });
+
+it('executes a queued BePaid payment with a new encrypted card', function () {
+    $transaction = app(PaymentManager::class)->payment(minos_encrypted_queue_intent());
+    $jobPayload = DB::connection('minos')->table('jobs')->value('payload');
+
+    expect($jobPayload)->not->toContain('encrypted-number', 'encrypted-cvc');
+
+    Http::fake(function (Request $request) use ($transaction) {
+        expect($request->header('RequestID'))
+            ->toBe([$transaction->id])
+            ->and($request['request']['encrypted_credit_card'])
+            ->toBe([
+                'number' => 'encrypted-number',
+                'holder' => 'encrypted-holder',
+                'exp_month' => 'encrypted-month',
+                'exp_year' => 'encrypted-year',
+                'verification_value' => 'encrypted-cvc',
+            ]);
+
+        return Http::response([
+            'transaction' => [
+                'uid' => 'remote-payment',
+                'status' => 'successful',
+                'credit_card' => [
+                    'token' => 'unrequested-card-token',
+                    'exp_month' => '02',
+                    'exp_year' => '2028',
+                ],
+            ],
+        ]);
+    });
+
+    Queue::connection('database')->pop('payments')->fire();
+
+    expect($transaction->refresh()->status)->toBe(TransactionStatus::Success);
+    expect($transaction->metadata)->not->toHaveKey('encrypted_credit_card');
+    expect(json_encode($transaction->getAttributes(), JSON_THROW_ON_ERROR))
+        ->not
+        ->toContain('encrypted-number', 'encrypted-cvc');
+    expect(CreditCard::query()->count())->toBe(0);
+});
+
+it('saves a new card after a queued BePaid payment succeeds', function (bool $reconcile) {
+    $transaction = app(PaymentManager::class)->payment(minos_encrypted_queue_intent(persist: true));
+    Http::fake(function (Request $request) use ($reconcile) {
+        if ($reconcile && $request->method() === 'POST') {
+            return Http::response(['transaction' => ['uid' => 'remote-payment', 'status' => 'pending']]);
+        }
+
+        return Http::response([
+            'transaction' => [
+                'uid' => 'remote-payment',
+                'status' => 'successful',
+                'credit_card' => [
+                    'token' => 'new-card-token',
+                    'exp_month' => '02',
+                    'exp_year' => '2028',
+                ],
+            ],
+        ]);
+    });
+
+    Queue::connection('database')->pop('payments')->fire();
+
+    if ($reconcile) {
+        expect($transaction->refresh()->status)->toBe(TransactionStatus::Pending);
+        expect($transaction->metadata['persist_card'])->toBeTrue();
+
+        app(PaymentManager::class)->synchronize($transaction);
+        Queue::connection('database')->pop('payments')->fire();
+    }
+
+    $card = CreditCard::query()->where('token', 'new-card-token')->sole();
+
+    expect($transaction->refresh()->status)
+        ->toBe(TransactionStatus::Success)
+        ->and($transaction->metadata['payment_card_id'])
+        ->toBe($card->id)
+        ->and($card->customer_id)
+        ->toBe($transaction->payer_id);
+})->with(['immediate response' => false, 'reconciliation' => true]);
 
 it('rejects a queue on a different database connection without retaining the payment', function () {
     config()->set('queue.connections.database.connection', 'sqlite');
@@ -393,11 +492,8 @@ it('rejects a stale synchronization response and fetches fresh state on retry', 
     expect($root->refresh()->received()->amount)->toBe(1000);
 });
 
-it('rejects card verification data before persisting an operation', function (bool $encrypted) {
+it('rejects unsupported instruments and saved-card verification data before persisting an operation', function (bool $withVerification) {
     $original = minos_queue_intent();
-    $instrument = $encrypted
-        ? new EncryptedCard('number', 'holder', 'month', 'year', 'cvc')
-        : new CardToken($original->instrument->id, 'cvc');
     $intent = new Intent(
         $original->id,
         $original->number,
@@ -405,7 +501,7 @@ it('rejects card verification data before persisting an operation', function (bo
         $original->method,
         $original->source,
         $original->payer,
-        $instrument,
+        $withVerification ? new CardToken($original->instrument->id, 'cvc') : new Bypass,
         $original->lines,
     );
 

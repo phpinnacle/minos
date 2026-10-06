@@ -44,27 +44,19 @@ readonly class EripClient
             ->throw()
             ->json();
 
-        $result = TransactionResponse::parse($response);
-        $continuation = $result->continuation([
-            'qr_code' => $response['transaction']['erip']['qr_code'] ?? null,
-            'account' => $response['transaction']['erip']['account_number'] ?? null,
-            'instruction' => self::explode($response['transaction']['erip']['instruction'][0] ?? '', '->'),
-            'service' => $response['transaction']['erip']['service_no_erip'] ?? null,
-            'banks' => $response['transaction']['erip']['banks'] ?? [],
-        ]);
+        $continuation = TransactionResponse::parse($response)->eripContinuation();
         $continuation->expiresAt = $expires;
 
         return $continuation;
     }
 
     /**
-     * @param non-empty-string $delimiter
      * @return list<string>
      */
-    private static function explode(string $value, string $delimiter = \PHP_EOL): array
+    private static function explode(string $value): array
     {
         return array_values(array_filter(
-            array_map(fn (string $v) => trim($v), explode($delimiter, $value)),
+            array_map(fn (string $v) => trim($v), explode(\PHP_EOL, $value)),
             fn (string $v) => $v !== '',
         ));
     }

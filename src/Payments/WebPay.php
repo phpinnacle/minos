@@ -7,16 +7,19 @@ use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Components\Group;
 use Filament\Support\Colors\Color;
+use Illuminate\Http\Request;
+use PHPinnacle\Minos\Contracts\WebhookGateway;
 use PHPinnacle\Minos\Enums\Ability;
 use PHPinnacle\Minos\Enums\TransactionStatus;
 use PHPinnacle\Minos\Exceptions\PaymentDenied;
 use PHPinnacle\Minos\Models\Continuation;
 use PHPinnacle\Minos\Models\Intent;
 use PHPinnacle\Minos\Models\Notification;
+use PHPinnacle\Minos\Models\Transaction;
 use PHPinnacle\Minos\Services\WebPay\CardClient;
 use PHPinnacle\Minos\Services\WebPay\RequestSigner;
 
-class WebPay extends Base
+class WebPay extends Base implements WebhookGateway
 {
     private const array SECURITY = [
         'auto',
@@ -24,6 +27,20 @@ class WebPay extends Base
         'force_3ds_only_auth_yes',
         'without_3ds',
     ];
+
+    public function acceptsWebhook(Transaction $transaction, Request $request): bool
+    {
+        $payload = $request->input();
+
+        return (
+            ($payload['site_order_id'] ?? null) === $transaction->number
+            && (
+                $transaction->external_id === null
+                || ($payload['transaction_id'] ?? null) === $transaction->external_id
+            )
+            && RequestSigner::make($transaction->method->settings['secret_key'])->verify($payload)
+        );
+    }
 
     public function key(): string
     {
