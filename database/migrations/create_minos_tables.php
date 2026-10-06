@@ -75,7 +75,8 @@ return new class extends Migration {
         });
 
         Schema::create('payment_transactions', function (Blueprint $table) {
-            $table->uuid('id')->primary();
+            $table->uuid('id');
+            $table->primary('id');
             $table
                 ->foreignIdFor(PaymentMethod::class, 'method_id')
                 ->constrained()
@@ -85,10 +86,8 @@ return new class extends Migration {
                 ->nullable()
                 ->constrained('payment_transactions')
                 ->noActionOnDelete();
-            $table->string('source_type');
-            $table->string('source_id');
-            $table->string('payer_type');
-            $table->string('payer_id');
+            $table->uuidMorphs('source');
+            $table->uuidMorphs('payer');
             $table->string('number');
             $table->text('description');
             $table->text('reason')->nullable();
@@ -106,8 +105,6 @@ return new class extends Migration {
             $this->addTenancy($table);
 
             $table->index(['method_id', 'external_id']);
-            $table->index(['payer_type', 'payer_id']);
-            $table->index(['source_type', 'source_id']);
             $table->index(['parent_id', 'type', 'status']);
         });
     }

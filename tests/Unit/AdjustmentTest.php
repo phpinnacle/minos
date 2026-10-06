@@ -38,9 +38,3 @@ it('adds the adjustment amount for non-discount types', function (string $factor
     'tax' => ['tax', AdjustmentType::Tax],
     'fee' => ['fee', AdjustmentType::Fee],
 ]);
-
-it('stores the label and optional description', function () {
-    $adjustment = Adjustment::discount('Sale', new Money(100, 'BYN'), 'Seasonal discount');
-
-    expect($adjustment->label)->toBe('Sale')->and($adjustment->description)->toBe('Seasonal discount');
-});

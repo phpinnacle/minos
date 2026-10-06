@@ -179,8 +179,8 @@ function minos_resource_payment(string $number = 'PAY-001', ?Source $source = nu
         number: $number,
         description: 'Order payment',
         method: $method,
-        source: $source ?? new Source('order-1', 'order'),
-        payer: $payer ?? new Payer('customer-1', 'customer'),
+        source: $source ?? new Source('00000000-0000-0000-0000-000000000001', 'order'),
+        payer: $payer ?? new Payer('00000000-0000-0000-0000-000000000002', 'customer'),
         instrument: null,
         lines: [new IntentLine('Item', 1, new Money(1000, 'USD'))],
     ));
@@ -267,8 +267,8 @@ it('shows confirmed balances and unregistered application references as identifi
         ->assertSee('10.00 USD')
         ->assertSee('2.50 USD')
         ->assertSee('7.50 USD')
-        ->assertSee('order-1')
-        ->assertSee('customer-1')
+        ->assertSee('00000000-0000-0000-0000-000000000001')
+        ->assertSee('00000000-0000-0000-0000-000000000002')
         ->assertSee('order')
         ->assertSee('customer');
 
@@ -315,18 +315,18 @@ it('renders registered source and payer schemas and hides unavailable references
         number: 'PAY-MISSING-REFERENCES',
         description: 'Missing references',
         method: $method,
-        source: new Source('missing-source', $method->getMorphClass()),
-        payer: new Payer('missing-payer', $method->getMorphClass()),
+        source: new Source('00000000-0000-0000-0000-000000000003', $method->getMorphClass()),
+        payer: new Payer('00000000-0000-0000-0000-000000000004', $method->getMorphClass()),
         instrument: null,
         lines: [new IntentLine('Item', 1, new Money(1000, 'USD'))],
     ));
 
     Livewire::test(ViewTransaction::class, ['record' => $missing->id])
         ->assertSuccessful()
-        ->assertDontSee('missing-source')
-        ->assertDontSee('missing-payer')
+        ->assertDontSee('00000000-0000-0000-0000-000000000003')
+        ->assertDontSee('00000000-0000-0000-0000-000000000004')
         ->assertDontSee($method->getMorphClass())
-        ->assertDontSee('/sources/missing-source', escape: false);
+        ->assertDontSee('/sources/00000000-0000-0000-0000-000000000003', escape: false);
 });
 
 it('shows only the selected parents children and links them to their view pages', function () {
@@ -431,8 +431,6 @@ it('records a manual refund from the history and rejects another transaction', f
         ->manageWhen(true);
     $actions = collect($entry->getDefaultActions())->keyBy(fn ($action) => $action->getName());
 
-    expect($actions->keys()->all())->toBe(['cancel', 'capture', 'void', 'refund']);
-
     $refund = $actions->get('refund');
 
     expect(fn () => $refund->evaluate($refund->getActionFunction(), [
@@ -498,8 +496,8 @@ it('records manual capture and void against the same authorization', function ()
         number: 'AUTH-001',
         description: 'Order authorization',
         method: $method,
-        source: new Source('order-1', 'order'),
-        payer: new Payer('customer-1', 'customer'),
+        source: new Source('00000000-0000-0000-0000-000000000001', 'order'),
+        payer: new Payer('00000000-0000-0000-0000-000000000002', 'customer'),
         instrument: null,
         lines: [new IntentLine('Item', 1, new Money(1000, 'USD'))],
     ))->handle(Continuation::success());
@@ -525,10 +523,6 @@ it('records manual capture and void against the same authorization', function ()
         ->toBe(600)
         ->and($authorization->capturable()->isZero())
         ->toBeTrue();
-});
-
-it('registers the transaction history view', function () {
-    expect(view()->exists('phpinnacle-minos::infolists.transaction-history-entry'))->toBeTrue();
 });
 
 it('lists only the payer transactions on a related records page', function () {

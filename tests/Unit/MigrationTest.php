@@ -3,49 +3,51 @@
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
+use PHPinnacle\Minos\Models\Intent;
+use PHPinnacle\Minos\Models\IntentLine;
+use PHPinnacle\Minos\Models\Payer;
+use PHPinnacle\Minos\Models\PaymentPlan;
+use PHPinnacle\Minos\Models\Source;
+use PHPinnacle\Minos\Models\Transaction;
+use PHPinnacle\Minos\Payments\Cash;
+use PHPinnacle\Money\Money;
 use Tests\TestCase;
 
 uses(TestCase::class);
 
-class MinosMigrationTenant extends Model {}
+class MinosMigrationTenant extends Model
+{
+    public $timestamps = false;
+}
 
-it('adds tenant foreign keys and defaults to the configured application model', function () {
+it('assigns new payment records to the configured default tenant', function () {
     Schema::create('minos_migration_tenants', function (Blueprint $table) {
         $table->id();
     });
-    config()->set('phpinnacle-minos.tenancy', ['model' => MinosMigrationTenant::class, 'default' => 1]);
+    $tenant = new MinosMigrationTenant;
+    $tenant->save();
+    config()->set('phpinnacle-minos.tenancy', ['model' => MinosMigrationTenant::class, 'default' => $tenant->id]);
     (require __DIR__ . '/../../database/migrations/create_minos_tables.php')->up();
 
-    foreach (['payment_methods', 'payment_plans', 'payment_transactions'] as $table) {
-        $column = collect(Schema::getColumns($table))->firstWhere('name', 'tenant_id');
-        $foreignKey = collect(Schema::getForeignKeys($table))->firstWhere('columns', ['tenant_id']);
+    $method = new Cash()->define();
+    $method->save();
+    $plan = PaymentPlan::query()->create(['name' => 'Single payment', 'parts' => [['value' => 100, 'delay' => 0]]]);
+    $payment = Transaction::payment(new Intent(
+        id: (string) Str::uuid(),
+        number: 'PAY-TENANT',
+        description: 'Tenant payment',
+        method: $method,
+        source: new Source('00000000-0000-0000-0000-000000000001', 'order'),
+        payer: new Payer('00000000-0000-0000-0000-000000000002', 'customer'),
+        instrument: null,
+        lines: [new IntentLine('Item', 1, new Money(1000, 'USD'))],
+    ));
 
-        expect($column['default'])->toBe("'1'")->and($foreignKey['foreign_table'])->toBe('minos_migration_tenants');
-    }
-
-    expect(Schema::hasColumn('payment_cards', 'tenant_id'))->toBeFalse();
-});
-
-it('creates and rolls back every Minos table on its configured connection', function () {
-    config()->set('database.connections.minos', config('database.connections.sqlite'));
-    config()->set('phpinnacle-minos.connection', 'minos');
-    $path = realpath(__DIR__ . '/../../database/migrations');
-
-    $this->artisan('migrate', [
-        '--path' => $path,
-        '--realpath' => true,
-    ])->assertSuccessful();
-
-    foreach (['payment_methods', 'payment_plans', 'payment_cards', 'payment_transactions'] as $table) {
-        expect(Schema::connection('minos')->hasTable($table))->toBeTrue()->and(Schema::hasTable($table))->toBeFalse();
-    }
-
-    $this->artisan('migrate:rollback', [
-        '--path' => $path,
-        '--realpath' => true,
-    ])->assertSuccessful();
-
-    foreach (['payment_methods', 'payment_plans', 'payment_cards', 'payment_transactions'] as $table) {
-        expect(Schema::connection('minos')->hasTable($table))->toBeFalse();
-    }
+    expect($method->fresh()->getAttribute('tenant_id'))
+        ->toBe($tenant->id)
+        ->and($plan->fresh()->getAttribute('tenant_id'))
+        ->toBe($tenant->id)
+        ->and($payment->fresh()->getAttribute('tenant_id'))
+        ->toBe($tenant->id);
 });

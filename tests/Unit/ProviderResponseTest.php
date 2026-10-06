@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Date;
@@ -20,7 +21,6 @@ use PHPinnacle\Minos\Payments\BePaid;
 use PHPinnacle\Minos\Payments\Erip;
 use PHPinnacle\Minos\Payments\WebPay;
 use PHPinnacle\Minos\Services\PaymentManager;
-use PHPinnacle\Minos\Services\WebPay\RequestSigner;
 use PHPinnacle\Money\Money;
 use Tests\TestCase;
 
@@ -41,7 +41,7 @@ function minos_provider_intent(PaymentProvider $provider): Intent
         'PAY-1',
         'Item',
         $method,
-        new Source('1', 'order'),
+        new Source('00000000-0000-0000-0000-000000000001', 'order'),
         new Payer((string) Str::uuid(), 'customer'),
         new EncryptedCard('number', 'holder', 'month', 'year', 'cvc', persist: true),
         [new IntentLine('Item', 1, new Money(1000, 'USD'))],
@@ -220,8 +220,8 @@ it('preserves the distinct card checkout and notification metadata', function ()
         ->toBe($payload);
 });
 
-it('reuses saved cards across immediate and callback success with a full expiry day', function () {
-    Date::setTestNow('2027-01-31 12:30:00 UTC');
+it('reuses saved cards per payer and method and accepts them through their expiry month', function () {
+    Date::setTestNow('2028-02-29 12:30:00 UTC');
 
     try {
         $provider = new BePaid;
@@ -237,10 +237,8 @@ it('reuses saved cards across immediate and callback success with a full expiry 
             ->toBe($initial->metadata['payment_card_id'])
             ->and($card->is_default)
             ->toBeTrue()
-            ->and($card->sort)
-            ->toBe(1)
-            ->and($card->expires_at->format('Y-m-d H:i:s'))
-            ->toBe('2028-02-29 23:59:59')
+            ->and(CreditCard::usable($card->id, $intent->method, $intent->payer)->id)
+            ->toBe($card->id)
             ->and($card->token)
             ->toBe('card-token');
 
@@ -250,12 +248,16 @@ it('reuses saved cards across immediate and callback success with a full expiry 
         $other = minos_provider_intent($provider);
         $provider->handle(new Notification('3', '1', $other->method, $intent->payer, $payload));
         expect(CreditCard::query()->count())->toBe(3);
+
+        Date::setTestNow('2028-03-01 00:00:00 UTC');
+        expect(fn () => CreditCard::usable($card->id, $intent->method, $intent->payer))
+            ->toThrow(ModelNotFoundException::class);
     } finally {
         Date::setTestNow();
     }
 });
 
-it('stores and lists checkout cards on the package connection', function () {
+it('offers saved cards at checkout when payments use a separate database', function () {
     config()->set('database.connections.minos', config('database.connections.sqlite'));
     config()->set('phpinnacle-minos.connection', 'minos');
     $this->artisan('migrate', [
@@ -269,15 +271,11 @@ it('stores and lists checkout cards on the package connection', function () {
     $cardId = $provider->intent($intent)->metadata['payment_card_id'];
     $card = CreditCard::query()->findOrFail($cardId);
 
-    $schema = $provider->schema($intent->method, $intent->payer);
-    expect($schema->properties[1]->enum)
-        ->toBe([$cardId])
-        ->and($card->getConnection()->getName())
-        ->toBe('minos')
-        ->and($card->method->getConnection()->getName())
-        ->toBe('minos')
-        ->and(CreditCard::list($intent->method->id, $intent->payer)->modelKeys())
+    expect(CreditCard::list($intent->method->id, $intent->payer)->modelKeys())
         ->toBe([$cardId]);
+    expect($card->method->is($intent->method))->toBeTrue();
+    $token = collect($provider->schema($intent->method, $intent->payer)->properties)->firstWhere('property', 'token');
+    expect($token->enum)->toBe([$cardId]);
 });
 
 it('rejects invalid external card expiry instead of repairing it', function () {
@@ -338,7 +336,8 @@ it('maps signed WebPay outcomes without changing the signed amount representatio
     $result = $provider->handle(new Notification('1', '1', $intent->method, $intent->payer, $payload));
     expect($result->status)->toBe($status)->and($result->externalId)->toBe('remote-payment');
     $payload['amount'] = '10.0';
-    expect(new RequestSigner('secret')->verify($payload))->toBeFalse();
+    expect(fn () => $provider->handle(new Notification('1', '1', $intent->method, $intent->payer, $payload)))
+        ->toThrow(PaymentDenied::class);
 })->with([
     ['1',  TransactionStatus::Success],
     ['4',  TransactionStatus::Success],

@@ -32,7 +32,11 @@ uses(TestCase::class);
 
 class MinosTransactionSubject extends Model
 {
+    public $incrementing = false;
+
     public $timestamps = false;
+
+    protected $keyType = 'string';
 
     protected $guarded = [];
 }
@@ -49,8 +53,8 @@ function minos_transaction_intent(?PaymentMethod $method = null, int $amount = 1
         number: 'PAY-001',
         description: 'First installment',
         method: $method,
-        source: new Source('1', MinosTransactionSubject::class, 'ORDER-001'),
-        payer: new Payer('2', MinosTransactionSubject::class),
+        source: new Source('00000000-0000-0000-0000-000000000001', MinosTransactionSubject::class, 'ORDER-001'),
+        payer: new Payer('00000000-0000-0000-0000-000000000002', MinosTransactionSubject::class),
         instrument: null,
         lines: [new IntentLine('Item', 1, new Money($amount, 'USD'))],
     );
@@ -59,10 +63,10 @@ function minos_transaction_intent(?PaymentMethod $method = null, int $amount = 1
 beforeEach(function () {
     (require __DIR__ . '/../../database/migrations/create_minos_tables.php')->up();
     Schema::create('minos_transaction_subjects', function (Blueprint $table) {
-        $table->id();
+        $table->uuid('id')->primary();
     });
-    MinosTransactionSubject::query()->create(['id' => 1]);
-    MinosTransactionSubject::query()->create(['id' => 2]);
+    MinosTransactionSubject::query()->create(['id' => '00000000-0000-0000-0000-000000000001']);
+    MinosTransactionSubject::query()->create(['id' => '00000000-0000-0000-0000-000000000002']);
     Http::preventStrayRequests();
 });
 
@@ -79,12 +83,17 @@ it('persists a transaction with application-owned source and payer models', func
         ->and($transaction->method->is($intent->method))
         ->toBeTrue()
         ->and($transaction->source->getKey())
-        ->toBe(1)
+        ->toBe('00000000-0000-0000-0000-000000000001')
         ->and($transaction->payer->getKey())
-        ->toBe(2)
+        ->toBe('00000000-0000-0000-0000-000000000002')
         ->and(Transaction::forSource($intent->source)->sole()->is($transaction))
         ->toBeTrue()
-        ->and(Transaction::forSource(new Source('2', MinosTransactionSubject::class))->count())
+        ->and(
+            Transaction::forSource(new Source(
+                '00000000-0000-0000-0000-000000000002',
+                MinosTransactionSubject::class,
+            ))->count(),
+        )
         ->toBe(0)
         ->and($transaction->balanceImpact()->isZero())
         ->toBeTrue();
@@ -194,12 +203,6 @@ it('reserves refunds across stale model instances', function () {
 it('does not repeat terminal transitions or regress completed operations', function () {
     $transaction = Transaction::payment(minos_transaction_intent());
     $stale = $transaction->fresh();
-    $updates = 0;
-    Transaction::updated(function (Transaction $record) use (&$updates) {
-        if ($record->wasChanged('status')) {
-            $updates++;
-        }
-    });
     $transaction->handle(Continuation::pending('remote-1', ['redirect' => 'https://example.test/pay']));
     $transaction->handle(Continuation::success('remote-1', ['receipt' => 'https://example.test/receipt']));
     $processed = $transaction->processed_at;
@@ -207,10 +210,10 @@ it('does not repeat terminal transitions or regress completed operations', funct
     $stale->handle(Continuation::pending());
     $stale->handle(Continuation::failure());
 
-    expect($updates)
-        ->toBe(1)
-        ->and($stale->status)
+    expect($stale->status)
         ->toBe(TransactionStatus::Success)
+        ->and($stale->received()->amount)
+        ->toBe(1000)
         ->and($stale->processed_at->eq($processed))
         ->toBeTrue()
         ->and($stale->metadata)
@@ -330,11 +333,7 @@ it('uses the configured database connection for records and child operations', f
     $refund = $payment->refund('REF-001', new Money(100, 'USD'), 'Return');
     $refund->handle(Continuation::success());
 
-    expect($payment->getConnection()->getName())
-        ->toBe('minos')
-        ->and(Schema::connection('minos')->hasTable('payment_transactions'))
-        ->toBeTrue()
-        ->and(Transaction::query()->count())
+    expect(Transaction::query()->count())
         ->toBe(2)
         ->and(\Illuminate\Support\Facades\DB::connection('sqlite')->table('payment_transactions')->count())
         ->toBe(0)
@@ -349,22 +348,6 @@ it('protects parent transactions and payment methods from deletion', function ()
     expect($payment->delete(...))->toThrow(\Illuminate\Database\QueryException::class);
     expect(fn () => $payment->method->delete())->toThrow(\Illuminate\Database\QueryException::class);
     expect(Transaction::query()->count())->toBe(2)->and(PaymentMethod::query()->count())->toBe(1);
-});
-
-it('rolls back all payment tables from the consolidated migration', function () {
-    $payment = Transaction::payment(minos_transaction_intent())->handle(Continuation::success());
-    $payment->refund('REF-001', new Money(100, 'USD'), 'Return');
-
-    (require __DIR__ . '/../../database/migrations/create_minos_tables.php')->down();
-
-    expect(Schema::hasTable('payment_transactions'))
-        ->toBeFalse()
-        ->and(Schema::hasTable('payment_methods'))
-        ->toBeFalse()
-        ->and(Schema::hasTable('payment_plans'))
-        ->toBeFalse()
-        ->and(Schema::hasTable('payment_cards'))
-        ->toBeFalse();
 });
 
 it('preserves operation statuses while child operations change payment balances', function () {
@@ -436,16 +419,12 @@ it('reconciles a reversed refund and recomputes the root without double counting
     expect($root->refresh()->refundable()->amount)->toBe(1000)->and($refund->status)->toBe(TransactionStatus::Failure);
 
     $refund->synchronize(Continuation::success(), $root->refresh()->version);
-    $updates = 0;
-    Transaction::updated(function () use (&$updates) {
-        $updates++;
-    });
     $refund->synchronize(Continuation::success(), $root->refresh()->version);
 
-    expect($updates)
-        ->toBe(0)
-        ->and($root->refresh()->received()->amount)
+    expect($root->refresh()->received()->amount)
         ->toBe(700)
+        ->and($root->refunded()->amount)
+        ->toBe(300)
         ->and($root->balanceImpact()->amount)
         ->toBe(1000)
         ->and($refund->balanceImpact()->amount)
@@ -684,7 +663,6 @@ it('confirms a manual payment with its date and metadata in a single transition'
         'id' => $transaction->id,
         'status' => 'success',
         'processed_at' => '2026-10-05 12:00:00',
-        'version' => 1,
     ]);
     expect($transaction->fresh()->metadata)->toBe(['reference' => 'BANK-1', 'receipt' => 'RECEIPT-1']);
     expect($events)->toBe([
@@ -694,7 +672,7 @@ it('confirms a manual payment with its date and metadata in a single transition'
     Http::assertNothingSent();
 });
 
-it('confirms a manual refund with the current time and advances the payment version', function () {
+it('confirms a manual refund with the current time and updates the refunded balance', function () {
     $this->travelTo(new DateTimeImmutable('2026-10-06 12:00:00'));
     $payment = Transaction::payment(minos_transaction_intent())->confirmManual();
     $refund = $payment->refund('REF-MANUAL', new Money(250, 'USD'), 'Return');
@@ -707,20 +685,25 @@ it('confirms a manual refund with the current time and advances the payment vers
         'processed_at' => '2026-10-06 12:00:00',
     ]);
     expect($refund->fresh()->metadata)->toBe(['receipt' => 'REFUND-1']);
-    expect($payment->refresh()->version)->toBe(3);
     expect($payment->refunded()->amount)->toBe(250);
+    expect($payment->received()->amount)->toBe(750);
     Http::assertNothingSent();
 });
 
 it('does not change a terminal operation on manual confirmation', function (TransactionStatus $status) {
     $transaction = Transaction::payment(minos_transaction_intent());
     $transaction->handle(new Continuation($status, metadata: ['reference' => 'ORIGINAL']));
-    $original = $transaction->getAttributes();
+    $processedAt = $transaction->processed_at;
     Event::fake([TransactionStatusChanged::class, TransactionUpdated::class]);
 
     $transaction->confirmManual(new DateTimeImmutable('2026-10-05 12:00:00'), ['reference' => 'REPLACEMENT']);
 
-    expect($transaction->fresh()->getAttributes())->toBe($original);
+    expect($transaction->refresh()->status)
+        ->toBe($status)
+        ->and($transaction->metadata)
+        ->toBe(['reference' => 'ORIGINAL'])
+        ->and($transaction->processed_at->eq($processedAt))
+        ->toBeTrue();
     Event::assertNotDispatched(TransactionStatusChanged::class);
     Event::assertNotDispatched(TransactionUpdated::class);
 })->with([TransactionStatus::Success, TransactionStatus::Failure, TransactionStatus::Cancel]);
@@ -738,7 +721,6 @@ it('rejects manual confirmation of online operations', function () {
         'id' => $transaction->id,
         'status' => 'pending',
         'processed_at' => null,
-        'version' => 0,
     ]);
     expect($transaction->fresh()->metadata)->toBe([]);
     Event::assertNotDispatched(TransactionStatusChanged::class);

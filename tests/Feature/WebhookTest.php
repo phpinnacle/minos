@@ -48,8 +48,8 @@ function webhook_transaction(BePaid|Erip|WebPay $provider): Transaction
         number: 'PAY-001',
         description: 'Order payment',
         method: $method,
-        source: new Source('order-1', 'order'),
-        payer: new Payer('customer-1', 'customer'),
+        source: new Source('00000000-0000-0000-0000-000000000001', 'order'),
+        payer: new Payer('00000000-0000-0000-0000-000000000002', 'customer'),
         instrument: null,
         lines: [new IntentLine('Item', 1, new Money(1000, 'USD'))],
     ));
@@ -153,7 +153,7 @@ it('preserves saved card details from an authenticated BePaid notification', fun
         ->postJson(route('minos.transaction.notify', $transaction->id) . '?persist=1', $payload)
         ->assertNoContent();
 
-    expect(CreditCard::query()->sole()->customer_id)->toBe('customer-1');
+    expect(CreditCard::query()->sole()->customer_id)->toBe('00000000-0000-0000-0000-000000000002');
     expect(DB::table('jobs')->count())->toBe(1);
 });
 

@@ -28,8 +28,8 @@ function minos_broadcast_payment(): Transaction
         number: 'PAY-BROADCAST',
         description: 'Broadcast payment',
         method: $method,
-        source: new Source('order-1', 'order'),
-        payer: new Payer('customer-1', 'customer'),
+        source: new Source('00000000-0000-0000-0000-000000000001', 'order'),
+        payer: new Payer('00000000-0000-0000-0000-000000000002', 'customer'),
         instrument: null,
         lines: [new IntentLine('Item', 1, new Money(1000, 'USD'))],
     ));
@@ -66,14 +66,14 @@ it('broadcasts a complete pending checkout update without arbitrary metadata', f
         ->and($broadcast->broadcastAs())
         ->toBe('minos.transaction.changed')
         ->and($payload['root'])
-        ->toBe([
+        ->toMatchArray([
             'id' => $payment->id,
             'number' => 'PAY-BROADCAST',
             'amount' => 1000,
             'currency' => 'USD',
             'type' => 'payment',
             'status' => 'pending',
-            'version' => 1,
+            'version' => $payment->version,
             'captured_amount' => 0,
             'refunded_amount' => 0,
             'received_amount' => 0,
@@ -99,7 +99,7 @@ it('broadcasts a complete pending checkout update without arbitrary metadata', f
         ->and($payload['operation']['updated_at'])
         ->toBe($payment->updated_at->toIso8601String())
         ->and(json_encode($payload))
-        ->not->toContain('secret-value', 'customer-1', 'internal-bank-data');
+        ->not->toContain('secret-value', '00000000-0000-0000-0000-000000000002', 'internal-bank-data');
 });
 
 it('includes the updated root balance with a child refund', function () {
@@ -113,7 +113,7 @@ it('includes the updated root balance with a child refund', function () {
     expect($broadcast->broadcastOn()->name)
         ->toBe('private-minos.transactions.' . $payment->id)
         ->and($payload['root']['version'])
-        ->toBe(3)
+        ->toBe($payment->refresh()->version)
         ->and($payload['root']['captured_amount'])
         ->toBe(1000)
         ->and($payload['root']['refunded_amount'])

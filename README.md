@@ -174,7 +174,7 @@ Register `'transactions' => ManagePayerTransactions::route('/{record}/transactio
 
 `PHPinnacle\Minos\Models\Transaction` stores a payment and its child operations in one `payment_transactions` table. The root represents the payment throughout its lifecycle; captures and voids are its children, and a refund belongs to the payment or capture being refunded. `root()` follows these links back to the payment. `Intent` remains the input DTO for creating the root.
 
-Each record owns its amount, currency, type, operation status, external identifier and metadata. Its polymorphic `source` and `payer` references can point to application models or morph-map aliases; Minos does not depend on an order or sales package. Source and payer identifiers support both integer and string model keys.
+Each record owns its amount, currency, type, operation status, external identifier and metadata. Its polymorphic `source` and `payer` references can point to application models or morph-map aliases; Minos does not depend on an order or sales package. Source and payer identifiers use UUID model keys through `uuidMorphs`.
 
 `status` uses `TransactionStatus` and records the state of that record's operation: `pending`, `success`, `failure` or `cancel`. `type` identifies the operation: payment, authorization, capture, void or refund. Child operations do not change their parent's status: a successful authorization stays successful after capture or void, and a successful payment or capture stays successful after a refund. A successful refund also has `status = success`. Read `captured()`, `refunded()`, `received()` and `capturable()` for amounts; pending reservations do not mean that funds have been captured.
 
@@ -337,6 +337,8 @@ For queued execution, use `PaymentManager` instead of calling the model factory 
 Payment configuration and credentials are sensitive. Keep production secrets outside source control and validate webhook authenticity with the selected provider implementation.
 
 ## Testing
+
+Tests focus on payment rules and observable outcomes: amounts, reservations, status transitions, installment dates, saved-card ownership, authorization, and provider failures. Integration tests cover public checkout, webhook, queue, and broadcast contracts without fixing internal object identities, schema metadata, lock keys, or framework mechanics.
 
 ```bash
 composer test

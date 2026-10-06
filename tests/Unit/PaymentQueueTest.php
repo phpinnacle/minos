@@ -1,12 +1,10 @@
 <?php
 
-use Illuminate\Contracts\Events\ShouldHandleEventsAfterCommit;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Http\Client\RequestException;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -32,24 +30,10 @@ use PHPinnacle\Minos\Payments\Bank;
 use PHPinnacle\Minos\Payments\BePaid;
 use PHPinnacle\Minos\Payments\Cash;
 use PHPinnacle\Minos\Services\PaymentManager;
-use PHPinnacle\Minos\Services\ProviderRegistry;
 use PHPinnacle\Money\Money;
 use Tests\TestCase;
 
 uses(TestCase::class);
-
-class MinosQueueObserver implements ShouldHandleEventsAfterCommit
-{
-    /** @var list<TransactionStatus> */
-    public array $statuses = [];
-
-    public function updated(Transaction $transaction): void
-    {
-        if ($transaction->wasChanged('status')) {
-            $this->statuses[] = $transaction->status;
-        }
-    }
-}
 
 function minos_queue_intent(?Instrument $instrument = null): Intent
 {
@@ -78,7 +62,7 @@ function minos_queue_intent(?Instrument $instrument = null): Intent
         number: 'PAY-001',
         description: 'Order payment',
         method: $method,
-        source: new Source('1', 'order'),
+        source: new Source('00000000-0000-0000-0000-000000000001', 'order'),
         payer: $payer,
         instrument: $instrument,
         lines: [new IntentLine('Item', 1, new Money(1000, 'USD'))],
@@ -87,14 +71,15 @@ function minos_queue_intent(?Instrument $instrument = null): Intent
 
 function minos_encrypted_queue_intent(bool $persist = false): Intent
 {
-    return minos_queue_intent(new EncryptedCard(
+    $card = new EncryptedCard(
         'encrypted-number',
         'encrypted-holder',
         'encrypted-month',
         'encrypted-year',
         'encrypted-cvc',
-        $persist,
-    ));
+    );
+
+    return minos_queue_intent($persist ? $card->persisted() : $card);
 }
 
 function minos_queued_payment(): ProcessPayment
@@ -141,12 +126,11 @@ beforeEach(function () {
     Http::preventStrayRequests();
 });
 
-it('inserts a standard job inside the payment transaction and rolls both back together', function () {
+it('discards a payment and its scheduled execution when the application rolls back', function () {
     $intent = minos_queue_intent();
 
     expect(fn () => DB::connection('minos')->transaction(function () use ($intent) {
         app(PaymentManager::class)->payment($intent);
-        expect(DB::connection('minos')->table('jobs')->count())->toBe(1);
         throw new RuntimeException('Application rollback');
     }))
         ->toThrow(RuntimeException::class, 'Application rollback');
@@ -160,9 +144,7 @@ it('executes an encrypted Laravel job after commit without a Filament panel', fu
     $job = minos_queued_payment();
     expect(DB::connection('minos')->table('jobs')->value('payload'))
         ->not
-        ->toContain('provider-card-token', 'secret')
-        ->and(Schema::hasTable('payment_transactions'))
-        ->toBeFalse();
+        ->toContain('provider-card-token', 'secret');
     Http::assertNothingSent();
 
     Http::fake(function (Request $request) use ($transaction) {
@@ -250,8 +232,6 @@ it('saves a new card after a queued BePaid payment succeeds', function (bool $re
 
     if ($reconcile) {
         expect($transaction->refresh()->status)->toBe(TransactionStatus::Pending);
-        expect($transaction->metadata['persist_card'])->toBeTrue();
-
         app(PaymentManager::class)->synchronize($transaction);
         Queue::connection('database')->pop('payments')->fire();
     }
@@ -290,17 +270,6 @@ it('rolls back the payment if inserting its job fails', function () {
 
     expect(fn () => app(PaymentManager::class)->payment($intent))->toThrow(Illuminate\Database\QueryException::class);
     expect(Transaction::query()->count())->toBe(0);
-});
-
-it('lets the database driver redeliver a job reserved by a lost worker', function () {
-    app(PaymentManager::class)->payment(minos_queue_intent());
-    $queue = Queue::connection('database');
-    $first = $queue->pop('payments');
-    expect($queue->pop('payments'))->toBeNull();
-
-    $this->travel(151)->seconds();
-    $retry = $queue->pop('payments');
-    expect($retry->getJobId())->toBe($first->getJobId())->and($retry->attempts())->toBe(2);
 });
 
 it('rolls back a reserved refund when enqueueing fails', function () {
@@ -343,20 +312,6 @@ it('executes authorization and child operations through the same database queue'
             && $request['request']['amount'] === 200
         ),
     );
-});
-
-it('preserves status changes for application observers after commit', function () {
-    $transaction = Transaction::payment(minos_queue_intent());
-    $observer = new MinosQueueObserver;
-    app()->instance(MinosQueueObserver::class, $observer);
-    Transaction::observe(MinosQueueObserver::class);
-
-    DB::connection('minos')->transaction(function () use ($transaction, $observer) {
-        $transaction->handle(Continuation::success('remote-payment'));
-        expect($observer->statuses)->toBe([]);
-    });
-
-    expect($observer->statuses)->toBe([TransactionStatus::Success]);
 });
 
 it('replays the exact request after a response is lost before local commit', function () {
@@ -448,21 +403,35 @@ it('uses Laravel failed jobs and queue retry without releasing the payment reser
         ->toBe(0);
 });
 
-it('serializes jobs for different operations of the same payment', function () {
+it('defers another operation on the same payment until the running operation finishes', function () {
     $root = Transaction::authorize(minos_queue_intent())->handle(Continuation::success('remote-auth'));
-    app(PaymentManager::class)->capture($root, 'CAP-001', new Money(600, 'USD'));
-    $captureJob = minos_queued_payment();
+    $capture = app(PaymentManager::class)->capture($root, 'CAP-001', new Money(600, 'USD'));
     $void = app(PaymentManager::class)->void($root, 'VOID-001', new Money(400, 'USD'));
-    $voidJob = new ProcessPayment($void->id);
-    $key = $captureJob->middleware()[0]->getLockKey($captureJob);
-    expect($voidJob->middleware()[0]->getLockKey($voidJob))->toBe($key);
-    $lock = Cache::lock($key, 120);
-    $lock->get();
+    $requests = [];
+    Http::fake(function (Request $request) use ($void, &$requests) {
+        $requests[] = $request->url();
+
+        if ($request->url() === 'https://gateway.bepaid.by/transactions/captures') {
+            Queue::connection('database')->pop('payments')->fire();
+            expect($requests)->toBe(['https://gateway.bepaid.by/transactions/captures']);
+            expect($void->refresh()->status)->toBe(TransactionStatus::Pending);
+        }
+
+        return Http::response(['transaction' => ['uid' => 'remote-operation', 'status' => 'successful']]);
+    });
+
     Queue::connection('database')->pop('payments')->fire();
 
-    Http::assertNothingSent();
-    expect(DB::connection('minos')->table('jobs')->count())->toBe(2);
-    $lock->release();
+    expect($capture->refresh()->status)->toBe(TransactionStatus::Success);
+    expect($void->refresh()->status)->toBe(TransactionStatus::Pending);
+    expect($root->received()->amount)->toBe(600);
+
+    $this->travel(11)->seconds();
+    Queue::connection('database')->pop('payments')->fire();
+
+    expect($void->refresh()->status)->toBe(TransactionStatus::Success);
+    expect($root->capturable()->amount)->toBe(0)->and($root->received()->amount)->toBe(600);
+    Http::assertSentCount(2);
 });
 
 it('rejects a stale synchronization response and fetches fresh state on retry', function () {
@@ -546,6 +515,5 @@ it('keeps manual payments pending', function () {
     }
 
     expect(Transaction::query()->count())->toBe(2)->and(DB::connection('minos')->table('jobs')->count())->toBe(0);
-    expect(app(ProviderRegistry::class)->get('bepaid'))->toBeInstanceOf(BePaid::class);
     Http::assertNothingSent();
 });

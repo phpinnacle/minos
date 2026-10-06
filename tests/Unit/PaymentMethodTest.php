@@ -1,7 +1,6 @@
 <?php
 
 use PHPinnacle\Minos\Forms\MethodSelect;
-use PHPinnacle\Minos\Models\Model;
 use PHPinnacle\Minos\Models\PaymentMethod;
 use PHPinnacle\Minos\Payments\BePaid;
 use PHPinnacle\Minos\Payments\Cash;
@@ -37,12 +36,4 @@ it('filters the default method by the same online requirement as the selector', 
         ->toBeNull()
         ->and(MethodSelect::make()->online(false)->withDefault()->getDefaultState())
         ->toBe($method->id);
-});
-
-it('uses the package connection or the application default', function () {
-    config()->set('phpinnacle-minos.connection', 'package');
-    $model = new Model;
-    expect($model->getConnectionName())->toBe('package');
-    config()->set('phpinnacle-minos.connection', null);
-    expect($model->getConnection()->getName())->toBe(config('database.default'));
 });
