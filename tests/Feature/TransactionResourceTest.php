@@ -7,6 +7,7 @@ use Filament\PanelRegistry;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Text;
+use Filament\Schemas\Schema;
 use Illuminate\Auth\Access\Gate as LaravelGate;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -558,4 +559,51 @@ it('requires access to the owner record before showing its transactions', functi
     $payer->save();
 
     expect(MinosTestManageTransactions::canAccess(['record' => $payer]))->toBeFalse();
+});
+
+it('renders payment history cards only when contained', function (?bool $contained, bool $hasCard) {
+    $payment = minos_resource_payment('HISTORY-CONTAINED')->handle(Continuation::success());
+    $entry = TransactionHistoryEntry::make('history')->state([$payment]);
+
+    if ($contained !== null) {
+        $entry->contained(fn () => $contained);
+    }
+
+    $page = new ViewTransaction;
+    $page->setId('history-contained-test');
+    $page->setName('history-contained-test');
+    $schema = Schema::make($page)->record($payment)->components([$entry]);
+
+    $html = $schema->toHtml();
+
+    expect($html)->toContain('Received', 'View transaction details');
+
+    if ($hasCard) {
+        expect($html)->toContain('rounded-xl border border-gray-200');
+    } else {
+        expect($html)->not->toContain('rounded-xl border border-gray-200');
+    }
+})->with([
+    'default cards' => [null, true],
+    'explicit cards' => [true, true],
+    'inside a section' => [false, false],
+]);
+
+it('renders Russian payment history labels and operation dialogs', function () {
+    app()->setLocale('ru');
+    $payment = minos_resource_payment('HISTORY-RUSSIAN')->handle(Continuation::success());
+    $entry = TransactionHistoryEntry::make('history')->state([$payment])->manageWhen(true);
+    $page = new ViewTransaction;
+    $page->setId('history-russian-test');
+    $page->setName('history-russian-test');
+    $schema = Schema::make($page)->record($payment)->components([$entry]);
+
+    $html = $schema->toHtml();
+    $refund = $entry->getAction('refund')->arguments(['transaction' => $payment->id]);
+
+    expect($html)
+        ->toContain('Получено', 'Возвращено', 'Подробнее о транзакции', 'Учесть возврат')
+        ->not->toContain('Received', 'Refunded', 'View transaction details', 'Record refund');
+    expect($refund->getModalHeading())->toBe('Учесть возврат');
+    expect($refund->getModalDescription())->toBe('Учитывайте операцию только после её выполнения вне этой системы.');
 });

@@ -5,6 +5,7 @@ namespace PHPinnacle\Minos\Infolists;
 use Closure;
 use Filament\Actions\Action;
 use Filament\Infolists\Components\Entry;
+use Filament\Support\Concerns\CanBeContained;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -25,6 +26,8 @@ use PHPinnacle\Minos\Services\ProviderRegistry;
 
 class TransactionHistoryEntry extends Entry
 {
+    use CanBeContained;
+
     protected string $view = 'phpinnacle-minos::infolists.transaction-history-entry';
 
     private int $limit = 10;

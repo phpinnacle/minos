@@ -140,6 +140,8 @@ TransactionHistoryEntry::make('payment_history')
     ->state($transactions);
 ```
 
+Each payment is displayed in a card by default. Use `contained(false)` when the entry sits inside an existing section to remove the nested cards and their horizontal padding. The option also accepts a closure with Filament utility injection. History labels, action dialogs, and notifications support English and Russian.
+
 For a custom Filament theme using Tailwind CSS v4, add `@source '../../../../vendor/phpinnacle/minos/resources/views/**/*.blade.php';` to the theme CSS, adjusting the relative path to your project.
 
 The relationship should return the source's Minos transactions, for example a `morphMany(Transaction::class, 'source')` relation. Raw state should contain payment roots; child operations are loaded from their relationships. The entry shows ten roots by default and only records authorized by the transaction resource's `viewAny` and `view` policies. `manageWhen(true)` enables eligible capture, void, refund, and cancellation actions for users allowed to `update` the transaction; it defaults to false. Applications should pass an authorization callback when access also depends on the current record. Offline pending transactions can be canceled locally. The entry commits manual capture, void, and refund records together with their successful confirmation, so listeners observe the completed operation. Online operations require a provider with the corresponding capability.

@@ -30,18 +30,21 @@ class CancelTransactionAction extends Action
         parent::setUp();
 
         $this
-            ->label('Cancel transaction')
+            ->label(__('phpinnacle-minos::resources.transaction.actions.cancel'))
             ->color('danger')
             ->link()
             ->requiresConfirmation()
-            ->modalHeading('Cancel transaction')
-            ->modalDescription('Mark this pending offline transaction as canceled?')
-            ->modalSubmitActionLabel('Cancel transaction')
+            ->modalHeading(__('phpinnacle-minos::resources.transaction.actions.cancel'))
+            ->modalDescription(__('phpinnacle-minos::resources.transaction.modals.cancel'))
+            ->modalSubmitActionLabel(__('phpinnacle-minos::resources.transaction.actions.cancel'))
             ->action(function (array $arguments, ProviderRegistry $providers) {
                 $transaction = $this->history->transactionFromArguments($arguments);
 
                 if (!$this->history->canOperate($transaction, 'cancel', $providers)) {
-                    Notification::make()->title('This operation is no longer available.')->danger()->send();
+                    Notification::make()
+                        ->title(__('phpinnacle-minos::resources.transaction.notifications.unavailable'))
+                        ->danger()
+                        ->send();
 
                     return;
                 }
@@ -49,12 +52,18 @@ class CancelTransactionAction extends Action
                 $transaction->handle(new Continuation(TransactionStatus::Cancel));
 
                 if ($transaction->status !== TransactionStatus::Cancel) {
-                    Notification::make()->title('This operation is no longer available.')->danger()->send();
+                    Notification::make()
+                        ->title(__('phpinnacle-minos::resources.transaction.notifications.unavailable'))
+                        ->danger()
+                        ->send();
 
                     return;
                 }
 
-                Notification::make()->title('Transaction canceled')->success()->send();
+                Notification::make()
+                    ->title(__('phpinnacle-minos::resources.transaction.notifications.canceled'))
+                    ->success()
+                    ->send();
             });
     }
 }

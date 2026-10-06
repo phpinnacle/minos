@@ -60,7 +60,10 @@ abstract class TransactionOperationAction extends Action
                 $transaction = $this->history->transactionFromArguments($arguments);
 
                 if (!$this->history->canOperate($transaction, static::operation()->value, $providers)) {
-                    Notification::make()->title('This operation is no longer available.')->danger()->send();
+                    Notification::make()
+                        ->title(__('phpinnacle-minos::resources.transaction.notifications.unavailable'))
+                        ->danger()
+                        ->send();
 
                     return;
                 }
@@ -75,9 +78,15 @@ abstract class TransactionOperationAction extends Action
         $online = $this->history->transactionFromArguments($arguments)->method->isOnline();
 
         return match (static::operation()) {
-            TransactionType::CAPTURE => $online ? 'Capture funds' : 'Record capture',
-            TransactionType::VOID => $online ? 'Release hold' : 'Record hold release',
-            TransactionType::REFUND => $online ? 'Refund payment' : 'Record refund',
+            TransactionType::CAPTURE => $online
+                ? __('phpinnacle-minos::resources.transaction.actions.capture')
+                : __('phpinnacle-minos::resources.transaction.actions.record_capture'),
+            TransactionType::VOID => $online
+                ? __('phpinnacle-minos::resources.transaction.actions.void')
+                : __('phpinnacle-minos::resources.transaction.actions.record_void'),
+            TransactionType::REFUND => $online
+                ? __('phpinnacle-minos::resources.transaction.actions.refund')
+                : __('phpinnacle-minos::resources.transaction.actions.record_refund'),
             default => throw new LogicException('Unsupported transaction operation.'),
         };
     }
@@ -86,8 +95,8 @@ abstract class TransactionOperationAction extends Action
     private function operationDescription(array $arguments): string
     {
         return $this->history->transactionFromArguments($arguments)->method->isOnline()
-            ? 'The request will be sent to the payment provider.'
-            : 'Record this only after the operation has been completed outside this system.';
+            ? __('phpinnacle-minos::resources.transaction.modals.online_operation')
+            : __('phpinnacle-minos::resources.transaction.modals.offline_operation');
     }
 
     /**
@@ -106,6 +115,7 @@ abstract class TransactionOperationAction extends Action
             ? $transaction->refundable()
             : $transaction->capturable();
         $amount = MoneyInput::make('amount')
+            ->label(__('phpinnacle-minos::resources.transaction.fields.amount'))
             ->currencies([$transaction->currency])
             ->default($available)
             ->required();
@@ -123,7 +133,7 @@ abstract class TransactionOperationAction extends Action
 
         if (static::operation() === TransactionType::REFUND) {
             $fields[] = TextInput::make('reason')
-                ->label('Reason for refund')
+                ->label(__('phpinnacle-minos::resources.transaction.fields.reason'))
                 ->required()
                 ->maxLength(255);
         }
@@ -145,7 +155,9 @@ abstract class TransactionOperationAction extends Action
             || !$available->gt($amount, equal: true)
         ) {
             Notification::make()
-                ->title("Enter an amount up to {$available->format()}.")
+                ->title(__('phpinnacle-minos::resources.transaction.notifications.amount_limit', [
+                    'amount' => $available->format(),
+                ]))
                 ->danger()
                 ->send();
 
@@ -164,7 +176,11 @@ abstract class TransactionOperationAction extends Action
         }
 
         Notification::make()
-            ->title($transaction->method->isOnline() ? 'Operation requested' : 'Operation recorded')
+            ->title(
+                $transaction->method->isOnline()
+                    ? __('phpinnacle-minos::resources.transaction.notifications.requested')
+                    : __('phpinnacle-minos::resources.transaction.notifications.recorded'),
+            )
             ->success()
             ->send();
     }
